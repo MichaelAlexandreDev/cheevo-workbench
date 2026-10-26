@@ -1,5 +1,6 @@
 #include "core_options.hpp"
 
+#include <algorithm>
 #include <string_view>
 #include <utility>
 
@@ -75,6 +76,23 @@ const char* CoreOptions::get(const char* key) const {
         }
     }
     return nullptr;
+}
+
+bool CoreOptions::set(const std::string& key, const std::string& value) {
+    for (Option& option : options_) {
+        if (option.key != key) {
+            continue;
+        }
+        if (std::find(option.values.begin(), option.values.end(), value) == option.values.end()) {
+            return false;
+        }
+        if (option.value != value) {
+            option.value = value;
+            updated_ = true;
+        }
+        return true;
+    }
+    return false;
 }
 
 bool CoreOptions::take_updated() {

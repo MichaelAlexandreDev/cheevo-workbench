@@ -4,7 +4,8 @@ target_link_libraries(cw_test_core PRIVATE libretro_api cw_warnings)
 add_executable(cw_tests
     test_main.cpp
     test_rcheevos.cpp
-    test_libretro_core.cpp)
+    test_libretro_core.cpp
+    test_video_frame.cpp)
 target_link_libraries(cw_tests PRIVATE cw_devtools cw_frontend doctest cw_warnings)
 target_compile_definitions(cw_tests PRIVATE CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>")
 add_dependencies(cw_tests cw_test_core)

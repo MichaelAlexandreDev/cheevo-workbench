@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <new>
 #include <string_view>
 #include <type_traits>
 
@@ -163,6 +164,7 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     }
     game_loaded_ = true;
     frame_count_ = 0;
+    clear_frame();
 
     api_.get_system_av_info(&av_info_);
     const retro_game_geometry& g = av_info_.geometry;
@@ -195,6 +197,16 @@ void LibretroCore::unload() {
     reported_unsupported_.clear();
     pixel_format_ = RETRO_PIXEL_FORMAT_0RGB1555;
     av_info_ = {};
+    clear_frame();
+}
+
+void LibretroCore::clear_frame() {
+    // The serial keeps counting across games, so a renderer that remembers the last serial it
+    // uploaded can never mistake the first frame of a new game for one it already has.
+    frame_.width = 0;
+    frame_.height = 0;
+    frame_.rgba.clear();
+    reported_bad_frame_ = false;
 }
 
 void LibretroCore::run_frame() {
@@ -244,9 +256,21 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
         av_info_ = *static_cast<const retro_system_av_info*>(data);
         return true;
 
-    case RETRO_ENVIRONMENT_SET_GEOMETRY:
-        av_info_.geometry = *static_cast<const retro_game_geometry*>(data);
+    case RETRO_ENVIRONMENT_SET_GEOMETRY: {
+        // libretro.h: only base_width, base_height and aspect_ratio may change here; the
+        // max_* values are fixed until SET_SYSTEM_AV_INFO.
+        const auto& geometry = *static_cast<const retro_game_geometry*>(data);
+        av_info_.geometry.base_width = geometry.base_width;
+        av_info_.geometry.base_height = geometry.base_height;
+        av_info_.geometry.aspect_ratio = geometry.aspect_ratio;
         return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_HW_RENDER:
+        // Software rendering only (hardware rendering is "Later / optional" in the roadmap).
+        // Refusing stores nothing, and the core falls back to software frames.
+        SDL_Log("Core asked for hardware rendering; refused (software rendering only)");
+        return false;
 
     case RETRO_ENVIRONMENT_SET_MESSAGE:
         SDL_Log("[core message] %s", static_cast<const retro_message*>(data)->msg);
@@ -325,11 +349,37 @@ bool LibretroCore::on_environment(unsigned cmd, void* data) {
     return s_active && s_active->environment(cmd, data);
 }
 
-void LibretroCore::on_video_refresh(const void* data, unsigned width, unsigned height, size_t) {
-    if (s_active && data) {
-        s_active->last_frame_width_ = width;
-        s_active->last_frame_height_ = height;
+void LibretroCore::on_video_refresh(const void* data, unsigned width, unsigned height,
+                                    size_t pitch) {
+    // NULL = "dupe": repeat the previous image (we answered GET_CAN_DUPE with true), so the
+    // frame and its serial stay as they are. RETRO_HW_FRAME_BUFFER_VALID only comes from
+    // hardware-rendered cores, which we refuse in SET_HW_RENDER.
+    if (!s_active || !data || data == RETRO_HW_FRAME_BUFFER_VALID) {
+        return;
     }
+    VideoFrame& frame = s_active->frame_;
+    // This runs inside the core's retro_run(), which is C code: an exception escaping here
+    // would unwind through frames that know nothing about C++ (undefined behavior). A failed
+    // allocation is treated like any other rejected frame.
+    bool converted = false;
+    try {
+        converted =
+            convert_to_rgba(data, width, height, pitch, s_active->pixel_format_, frame.rgba);
+    } catch (const std::bad_alloc&) {
+        converted = false;
+    }
+    if (!converted) {
+        if (!s_active->reported_bad_frame_) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Ignoring a %ux%u frame with pitch %zu (pixel format %d)", width, height,
+                        pitch, static_cast<int>(s_active->pixel_format_));
+            s_active->reported_bad_frame_ = true;
+        }
+        return;
+    }
+    frame.width = width;
+    frame.height = height;
+    ++frame.serial;
 }
 
 void LibretroCore::on_audio_sample(int16_t, int16_t) {}

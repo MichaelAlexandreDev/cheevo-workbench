@@ -14,6 +14,13 @@
 #define TEST_CORE_MAX_PITCH (TEST_CORE_WIDTH * 4U + 16U)
 #define TEST_CORE_MAX_VIDEO_SIZE (TEST_CORE_MAX_PITCH * TEST_CORE_HEIGHT)
 #define TEST_CORE_OPTION_KEY "cw_test_pixel_format"
+#define TEST_CORE_RESIZE_KEY "cw_test_resize"
+/* With cw_test_resize enabled, frames from this one on are 32x16 with a 3:2 aspect ratio,
+   announced through SET_GEOMETRY. */
+#define TEST_CORE_RESIZE_FRAME 3U
+#define TEST_CORE_SMALL_WIDTH 32U
+#define TEST_CORE_SMALL_HEIGHT 16U
+#define TEST_CORE_SMALL_ASPECT 1.5f
 
 static retro_environment_t environment_callback;
 static retro_video_refresh_t video_refresh_callback;
@@ -22,6 +29,10 @@ static retro_input_poll_t input_poll_callback;
 static retro_input_state_t input_state_callback;
 static retro_log_printf_t log_callback;
 static bool can_dupe_frames;
+static bool resize_enabled;
+static bool hw_render_accepted;
+static unsigned int frame_width = TEST_CORE_WIDTH;
+static unsigned int frame_height = TEST_CORE_HEIGHT;
 
 static uint64_t frame_count;
 static bool game_loaded;
@@ -50,6 +61,21 @@ static struct retro_core_option_v2_definition core_option_definitions[] = {
             },
         .default_value = "0RGB1555",
     },
+    {
+        .key = TEST_CORE_RESIZE_KEY,
+        .desc = "Resize at frame 3",
+        .desc_categorized = NULL,
+        .info = "Switch to 32x16 frames (aspect 3:2) to exercise geometry changes.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"disabled", "disabled"},
+                {"enabled", "enabled"},
+                {NULL, NULL},
+            },
+        .default_value = "disabled",
+    },
     {0},
 };
 
@@ -60,6 +86,7 @@ static struct retro_core_options_v2 core_options_v2 = {
 
 static struct retro_variable legacy_variables[] = {
     {TEST_CORE_OPTION_KEY, "Pixel format; 0RGB1555|XRGB8888|RGB565"},
+    {TEST_CORE_RESIZE_KEY, "Resize at frame 3; disabled|enabled"},
     {NULL, NULL},
 };
 
@@ -86,6 +113,8 @@ static uint64_t read_u64_le(const uint8_t* source) {
 
 static void reset_game_state(void) {
     frame_count = 0;
+    frame_width = TEST_CORE_WIDTH;
+    frame_height = TEST_CORE_HEIGHT;
     memset(system_ram, 0, sizeof(system_ram));
     write_u32_le(system_ram + TEST_CORE_FRAME_COUNT_OFFSET, 0);
     write_u32_le(system_ram + TEST_CORE_INPUT_MASK_OFFSET, 0);
@@ -107,17 +136,22 @@ static bool parse_pixel_format(const char* value, enum retro_pixel_format* forma
     return true;
 }
 
+static size_t frame_pitch(void) {
+    const unsigned int bytes_per_pixel = pixel_format == RETRO_PIXEL_FORMAT_XRGB8888 ? 4U : 2U;
+    return (size_t)frame_width * bytes_per_pixel + 16U; /* 16 bytes of padding per row */
+}
+
 static void emit_video_frame(void) {
     const unsigned int bytes_per_pixel = pixel_format == RETRO_PIXEL_FORMAT_XRGB8888 ? 4U : 2U;
-    const size_t pitch = TEST_CORE_WIDTH * bytes_per_pixel + 16U;
+    const size_t pitch = frame_pitch();
     const uint8_t padding = (uint8_t)(0xA0U | (frame_count & 0x1FU));
     unsigned int y;
 
-    for (y = 0; y < TEST_CORE_HEIGHT; ++y) {
+    for (y = 0; y < frame_height; ++y) {
         uint8_t* row = video_buffer.bytes + (size_t)y * pitch;
         unsigned int x;
 
-        for (x = 0; x < TEST_CORE_WIDTH; ++x) {
+        for (x = 0; x < frame_width; ++x) {
             const uint8_t red = (uint8_t)(x * 3U + frame_count * 5U);
             const uint8_t green = (uint8_t)(y * 7U + frame_count * 11U);
             const uint8_t blue = (uint8_t)((x + y) * 13U + frame_count * 17U);
@@ -138,12 +172,12 @@ static void emit_video_frame(void) {
             }
         }
 
-        memset(row + (size_t)TEST_CORE_WIDTH * bytes_per_pixel, padding,
-               pitch - (size_t)TEST_CORE_WIDTH * bytes_per_pixel);
+        memset(row + (size_t)frame_width * bytes_per_pixel, padding,
+               pitch - (size_t)frame_width * bytes_per_pixel);
     }
 
     if (video_refresh_callback != NULL)
-        video_refresh_callback(video_buffer.bytes, TEST_CORE_WIDTH, TEST_CORE_HEIGHT, pitch);
+        video_refresh_callback(video_buffer.bytes, frame_width, frame_height, pitch);
 }
 
 static void emit_audio(void) {
@@ -259,6 +293,24 @@ bool retro_load_game(const struct retro_game_info* game) {
     if (!environment_callback(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &pixel_format))
         return false;
 
+    {
+        struct retro_variable resize = {TEST_CORE_RESIZE_KEY, NULL};
+        resize_enabled = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &resize) &&
+                         resize.value != NULL && strcmp(resize.value, "enabled") == 0;
+    }
+
+    /* Ask for hardware rendering like a GL core would. A software-only front-end must refuse;
+       if it accepted, this core would send RETRO_HW_FRAME_BUFFER_VALID instead of pixels and
+       the tests would see no software frames. */
+    {
+        struct retro_hw_render_callback hw_render;
+        memset(&hw_render, 0, sizeof(hw_render));
+        hw_render.context_type = RETRO_HW_CONTEXT_OPENGL_CORE;
+        hw_render.version_major = 3;
+        hw_render.version_minor = 3;
+        hw_render_accepted = environment_callback(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render);
+    }
+
     reset_game_state();
     game_loaded = true;
     if (log_callback != NULL)
@@ -300,12 +352,24 @@ void retro_run(void) {
     system_ram[TEST_CORE_INPUT_MASK_OFFSET] = (uint8_t)input_mask;
     system_ram[TEST_CORE_INPUT_MASK_OFFSET + 1U] = (uint8_t)(input_mask >> 8U);
 
-    if ((frame_count % 4U) == 0U && can_dupe_frames) {
-        if (video_refresh_callback != NULL) {
-            const size_t pitch =
-                TEST_CORE_WIDTH * (pixel_format == RETRO_PIXEL_FORMAT_XRGB8888 ? 4U : 2U) + 16U;
-            video_refresh_callback(NULL, TEST_CORE_WIDTH, TEST_CORE_HEIGHT, pitch);
-        }
+    if (resize_enabled && frame_count == TEST_CORE_RESIZE_FRAME) {
+        struct retro_game_geometry geometry;
+        geometry.base_width = TEST_CORE_SMALL_WIDTH;
+        geometry.base_height = TEST_CORE_SMALL_HEIGHT;
+        geometry.max_width = TEST_CORE_WIDTH; /* ignored by SET_GEOMETRY */
+        geometry.max_height = TEST_CORE_HEIGHT;
+        geometry.aspect_ratio = TEST_CORE_SMALL_ASPECT;
+        frame_width = TEST_CORE_SMALL_WIDTH;
+        frame_height = TEST_CORE_SMALL_HEIGHT;
+        (void)environment_callback(RETRO_ENVIRONMENT_SET_GEOMETRY, &geometry);
+    }
+
+    if (hw_render_accepted) {
+        if (video_refresh_callback != NULL)
+            video_refresh_callback(RETRO_HW_FRAME_BUFFER_VALID, frame_width, frame_height, 0);
+    } else if ((frame_count % 4U) == 0U && can_dupe_frames) {
+        if (video_refresh_callback != NULL)
+            video_refresh_callback(NULL, frame_width, frame_height, frame_pitch());
     } else {
         emit_video_frame();
     }
