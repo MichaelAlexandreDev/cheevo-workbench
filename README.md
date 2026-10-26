@@ -1,0 +1,79 @@
+# cheevo-workbench
+
+A native Linux workbench for developing [RetroAchievements](https://retroachievements.org) achievement sets.
+
+> **Unofficial community project.** Not affiliated with or endorsed by RetroAchievements.
+
+## Why
+
+Playing with achievements already works on Linux (RetroArch, DuckStation, PCSX2…), but the
+**developer tools** (RALibretro + RAIntegration) are Windows-only. Linux developers currently
+depend on Wine. This project aims to provide native developer tooling that produces output
+**fully compatible** with the official Windows toolkit, so Linux and Windows developers can
+work on the same sets.
+
+## Approach
+
+A small libretro front-end with built-in developer tools:
+
+```
+C++ + CMake
+├── SDL3          → window, input, audio (X11/Wayland/PipeWire)
+├── Dear ImGui    → developer UI
+├── rcheevos      → achievement evaluation, hashing, Rich Presence
+└── libretro API  → loads any libretro core (.so)
+Distribution: AppImage + AUR → Flatpak later
+```
+
+## Roadmap
+
+| # | Milestone | Status |
+|---|---|---|
+| 1 | Minimal libretro front-end: load core + content, video, audio, input, save states | ⏳ |
+| 2 | Memory viewer + memory search (8/16/32-bit, bits, filters) | ⏳ |
+| 3 | rcheevos integration: game hash, live achievement testing | ⏳ |
+| 4 | Achievement editor reading/writing RAIntegration local files (`<GameID>-User.txt`) | ⏳ |
+| 5 | Code notes + memory bookmarks | ⏳ |
+| 6 | Rich Presence + leaderboards | ⏳ |
+| 7 | Server integration (**only with RetroAchievements team approval**) | 🔒 |
+
+After milestone 4, an achievement set can be developed entirely on Linux and uploaded
+through the official RAIntegration (via Wine), which reads the same local files.
+
+## Building
+
+Requirements: a C++20 compiler (GCC or Clang), CMake ≥ 3.20, SDL3 and OpenGL headers.
+On Arch Linux:
+
+```sh
+sudo pacman -S --needed base-devel cmake ninja sdl3 mesa
+```
+
+rcheevos, Dear ImGui, doctest and libretro-common are vendored as git submodules:
+
+```sh
+git clone --recursive <repo-url>          # or, in an existing clone:
+git submodule update --init --recursive
+
+cmake -S . -B build -G Ninja
+cmake --build build
+ctest --test-dir build --output-on-failure
+./build/src/frontend/cheevo-workbench
+```
+
+Settings and window layout are stored in `~/.config/cheevo-workbench/`.
+
+## Non-goals and rules
+
+- No ROMs, BIOS files or copyrighted game data in this repository.
+- libretro cores are **not** bundled; users point the app to cores they already have.
+- No uploads to RetroAchievements servers without explicit approval from the RA team.
+- Not presented as an official RetroAchievements product.
+
+## Author
+
+SrStarrk777 — RetroAchievements Junior Developer.
+
+## License
+
+TBD (MIT or GPL, to be decided before the first release).

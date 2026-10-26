@@ -1,0 +1,56 @@
+# Build output
+build/
+cmake-build-*/
+compile_commands.json
+*.o
+*.a
+*.so
+*.AppImage
+
+# Game data: never commit ROMs, disc images, BIOS or saves
+*.bin
+*.cue
+*.chd
+*.iso
+*.img
+*.pbp
+*.ecm
+*.m3u
+*.sfc
+*.smc
+*.nes
+*.gba
+*.gb
+*.gbc
+*.n64
+*.z64
+*.v64
+*.gen
+*.smd
+scph*
+*.srm
+*.state
+*.state[0-9]*
+
+# Local RAIntegration-style data produced while testing
+RACache/
+
+# Editors / tools
+.vscode/
+.idea/
+.cache/
+.claude/settings.local.json
+
+# Read-only clones of upstream projects (RALibretro, RAIntegration, rcheevos) for reference
+reference/
+
+# Local game files and BIOS (kept outside version control)
+.utils/
+# gitignore patterns are case-sensitive: cover upper-case dumps too (e.g. SCPH1001.BIN)
+*.BIN
+*.CUE
+*.CHD
+*.ISO
+*.IMG
+*.PBP
+SCPH*
