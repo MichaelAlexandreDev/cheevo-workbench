@@ -2,7 +2,9 @@
 
 Drafts derived from [`docs/roadmap.md`](../roadmap.md), the single source of truth. Statuses and
 implementation dependencies match its tables; test-enablement links to 1.2b are called out
-separately. No issue has been opened in an external tracker.
+separately.
+
+**These drafts are frozen.** The live issues are on GitHub (`MichaelAlexandreDev/cheevo-workbench`, private), opened from this file on 2026-10-26: #1–#3 = 1.1, 1.2, 1.2b (closed), #4–#8 = 1.3–1.7, #9–#13 = 2.1–2.5, #14–#16 = 3.1–3.3, #17–#20 = 4.1–4.4, #21–#22 = 5.1–5.2, #23–#24 = 6.1–6.2, #25 = 7 (blocked). Discuss and update scope there; `docs/roadmap.md` stays the source of truth.
 
 Project-wide constraints: write new code from scratch; use synthetic memory, content metadata, and
 text fixtures in tests; do not add ROMs, BIOS images, copyrighted game data, or production cores;
