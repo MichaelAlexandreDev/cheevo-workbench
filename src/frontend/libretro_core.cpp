@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <new>
 #include <string_view>
 #include <type_traits>
 
@@ -357,7 +358,17 @@ void LibretroCore::on_video_refresh(const void* data, unsigned width, unsigned h
         return;
     }
     VideoFrame& frame = s_active->frame_;
-    if (!convert_to_rgba(data, width, height, pitch, s_active->pixel_format_, frame.rgba)) {
+    // This runs inside the core's retro_run(), which is C code: an exception escaping here
+    // would unwind through frames that know nothing about C++ (undefined behavior). A failed
+    // allocation is treated like any other rejected frame.
+    bool converted = false;
+    try {
+        converted =
+            convert_to_rgba(data, width, height, pitch, s_active->pixel_format_, frame.rgba);
+    } catch (const std::bad_alloc&) {
+        converted = false;
+    }
+    if (!converted) {
         if (!s_active->reported_bad_frame_) {
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                         "Ignoring a %ux%u frame with pitch %zu (pixel format %d)", width, height,

@@ -82,3 +82,20 @@ TEST_CASE("Invalid frames are rejected without touching the output") {
     CHECK_FALSE(cw::convert_to_rgba(nullptr, 2, 2, 4, RETRO_PIXEL_FORMAT_RGB565, rgba));
     CHECK(rgba == std::vector<uint8_t>(3, 0x42));
 }
+
+TEST_CASE("Oversized frames are rejected before any size arithmetic can overflow") {
+    // 2^31 x 2^31 x 4 bytes = 2^64, which wraps a 64-bit size_t to 0: without the size limit
+    // the output would be resized to nothing and the conversion loop would write past it.
+    // Rejection happens before any pixel is read, so a 1-pixel buffer is enough here.
+    const uint32_t pixel = 0;
+    std::vector<uint8_t> rgba(3, 0x42);
+    const unsigned huge = 1u << 31;
+    CHECK_FALSE(cw::convert_to_rgba(&pixel, huge, huge, static_cast<size_t>(huge) * 4,
+                                    RETRO_PIXEL_FORMAT_XRGB8888, rgba));
+    CHECK_FALSE(cw::convert_to_rgba(&pixel, cw::kMaxFrameSide + 1, 1,
+                                    static_cast<size_t>(cw::kMaxFrameSide + 1) * 4,
+                                    RETRO_PIXEL_FORMAT_XRGB8888, rgba));
+    CHECK_FALSE(cw::convert_to_rgba(&pixel, 1, cw::kMaxFrameSide + 1, 4,
+                                    RETRO_PIXEL_FORMAT_XRGB8888, rgba));
+    CHECK(rgba == std::vector<uint8_t>(3, 0x42));
+}

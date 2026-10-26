@@ -459,6 +459,14 @@ contexto é comportamento indefinido.
 - **Teste de mutação:** os testes passaram de primeira, então introduzimos 3 bugs de propósito
   (ignorar o pitch, aceitar hardware rendering, dupe apagando a imagem). Cada um fez testes
   falharem: os testes realmente testam.
+- **Overflow no tamanho do frame (achado na revisão do Codex, PR #26).** `width * height * 4`
+  com `width = height = 2^31` dá 2^64, que num `size_t` de 64 bits **volta a zero**: o vetor fica
+  vazio e o loop escreve fora dele. Nenhum core normal manda isso, mas um core com bug mandaria.
+  Correção: rejeitar lados maiores que `kMaxFrameSide` (16384) **antes** de qualquer conta. Com a
+  correção removida de propósito, o ASan acusa `heap-buffer-overflow` no teste novo: o bug era real.
+  Junto veio outra proteção: `on_video_refresh` roda **dentro** do `retro_run()` do core, que é
+  código C. Uma exceção C++ (ex.: `std::bad_alloc`) atravessando código C é comportamento
+  indefinido, então ela é capturada ali.
 
 ### Para fixar
 
@@ -468,3 +476,4 @@ contexto é comportamento indefinido.
 4. Se o core informar `aspect_ratio = 0` para um frame de 256×224, qual proporção desenhamos?
 5. Exercício: na janela Status, mostre também o formato de pixel atual (dica:
    `core.pixel_format()`).
+6. Por que verificamos `width > kMaxFrameSide` *antes* de calcular `width * height * 4`, e não depois?

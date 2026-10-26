@@ -40,7 +40,9 @@ unsigned bytes_per_pixel(retro_pixel_format format) {
 bool convert_to_rgba(const void* data, unsigned width, unsigned height, size_t pitch,
                      retro_pixel_format format, std::vector<uint8_t>& out) {
     const unsigned bpp = bytes_per_pixel(format);
-    if (!data || bpp == 0 || pitch < static_cast<size_t>(width) * bpp) {
+    // Checking the sides first keeps every multiplication below far from overflowing.
+    if (!data || bpp == 0 || width > kMaxFrameSide || height > kMaxFrameSide ||
+        pitch < static_cast<size_t>(width) * bpp) {
         return false;
     }
     out.resize(static_cast<size_t>(width) * height * 4);
