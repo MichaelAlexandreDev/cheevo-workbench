@@ -7,7 +7,7 @@ save states).
 |---|---|---|
 | 1.1 | Esqueleto: git, submódulos, CMake, janela SDL3 + ImGui | ✅ |
 | 1.2 | Carregar o core libretro | ✅ |
-| 1.2b | Core de teste sintético (testes sem ROM) | ⏳ |
+| 1.2b | Core de teste sintético (testes sem ROM) | ✅ |
 | 1.3 | Vídeo | ⏳ |
 | 1.4 | Áudio e sincronia | ⏳ |
 | 1.5 | Input | ⏳ |
@@ -264,3 +264,107 @@ e onde entram:
 5. Exercício: rode com `SDL_LOGGING="app=debug"` e veja a lista de comandos não suportados.
    Escolha um (ex.: `GET_LANGUAGE`), leia o comentário dele no `libretro.h` e diga o que você
    responderia.
+
+---
+
+## 1.2b · Core de teste sintético
+
+### O que foi feito
+
+- Extraímos `core_options.cpp`, `libretro_core.cpp` e `paths.cpp` para a biblioteca estática
+  `cw_frontend`. O executável e `cw_tests` ligam nela; as classes continuam com o mesmo
+  comportamento.
+- Criamos `cw_test_core`, um módulo C pequeno em `tests/test_core/test_core.c`, que implementa a
+  ABI libretro e não depende de ROM ou BIOS. O arquivo de conteúdo sintético dos testes é criado
+  na pasta temporária do sistema e removido ao final de cada caso.
+- O core oferece uma opção de formato de pixel, anuncia-a pela API v2 e usa `SET_VARIABLES` se o
+  front-end informar uma versão de opções abaixo de 2. Ao carregar conteúdo, lê o valor com
+  `GET_VARIABLE` e negocia 0RGB1555, XRGB8888 ou RGB565.
+- Cada quadro de vídeo tem 64×32 pixels, linhas com 16 bytes de padding e valores determinísticos
+  a partir de x, y e do contador de quadros. Consulta `GET_CAN_DUPE` e, quando o front-end permite,
+  envia `NULL` a cada quarto quadro para repetir o anterior. Emite 735 quadros de áudio estéreo por
+  chamada de `retro_run`.
+- O core consulta os 16 botões de `RETRO_DEVICE_JOYPAD` na porta 0 depois de chamar
+  `input_poll`. Os 64 KiB de `RETRO_MEMORY_SYSTEM_RAM` guardam o contador em little-endian nos
+  bytes 0–3 e a última máscara de 16 bits nos bytes 4–5, também em little-endian (bit *i* indica
+  o botão *i*).
+- Save state tem tamanho fixo de 65.544 bytes: contador de quadros de 64 bits em little-endian,
+  seguido pelos 64 KiB de RAM. `retro_unserialize` rejeita qualquer tamanho diferente.
+- Os testes carregam o módulo pelo caminho produzido por CMake, verificam metadados, opção,
+  dimensões e contagem de quadros; também cobrem biblioteca ausente, biblioteca que não é core,
+  tentativa de carregar conteúdo sem core e unload/reload.
+
+### Conceitos
+
+**Core de teste como `.so`.** `cw_test_core` é compilado como `MODULE`, portanto exporta as funções
+`retro_*` que `LibretroCore` procura com `dlsym`. O alvo não é instalado nem distribuído como
+emulador; ele existe só para os testes automatizados.
+
+**A biblioteca estática facilita testar o front-end.** Antes, os arquivos do host eram compilados
+direto no executável, então os testes não podiam instanciar `cw::LibretroCore`. `cw_frontend`
+compartilha a implementação entre o executável e `cw_tests`, sem duplicar fontes nem mudar o
+comportamento do host.
+
+**Opções têm versões.** O core pergunta `GET_CORE_OPTIONS_VERSION`; se a resposta for pelo menos 2,
+registra a opção com `SET_CORE_OPTIONS_V2`. Caso contrário, usa a lista antiga de
+`SET_VARIABLES`. Na hora de carregar o conteúdo, `GET_VARIABLE` devolve a escolha atual e o core
+passa o enum correspondente a `SET_PIXEL_FORMAT`.
+
+**Pitch é o tamanho da linha em bytes.** Aqui ele é maior do que `64 × bytes_por_pixel`, porque
+cada linha tem 16 bytes que não são pixels. Um front-end que trate pitch como largura em pixels
+vai deslocar as linhas. As amostras de áudio também têm uma unidade própria: 735 significa
+735 pares estéreo (esquerda, direita), não 735 valores `int16_t` isolados.
+
+**Um frame duplicado ainda conta.** `retro_run` é chamado uma vez por frame de emulação. O core
+incrementa o contador mesmo quando envia `NULL` ao callback de vídeo para pedir que o front-end
+repita a imagem anterior; áudio e input continuam sendo processados nesse frame.
+
+**Save states precisam ser reprodutíveis.** O estado usa campos serializados explicitamente em
+little-endian, sem depender de padding de uma `struct` C ou da arquitetura do compilador. Isso
+permite verificar o tamanho e rejeitar buffers truncados ou com tamanho inesperado.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/frontend/CMakeLists.txt`: como `cw_frontend` compartilha o host entre app e testes.
+2. `tests/CMakeLists.txt`: o módulo de teste, caminho no compile definition e ligação com
+   `cw_frontend`.
+3. `tests/test_core/test_core.c`: callbacks, opção, vídeo, áudio, input, RAM e serialização.
+4. `tests/test_libretro_core.cpp`: testes da classe real do front-end com conteúdo temporário.
+5. `src/frontend/libretro_core.hpp` e `src/frontend/libretro_core.cpp`: interface exercitada pelos
+   testes.
+6. `third_party/libretro-common/include/libretro.h`: procure os tipos e comandos citados abaixo.
+
+### O que aprendemos com a referência
+
+Não copiamos código de emuladores: o core sintético foi escrito do zero para ter comportamento
+controlado e conteúdo não protegido. Conferimos os contratos diretamente no `libretro.h`:
+
+- `retro_system_info`, `RETRO_API_VERSION` e `retro_game_info` definem identificação, versão da
+  ABI e a passagem do conteúdo em memória quando `need_fullpath` é falso.
+- `RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION`, `SET_CORE_OPTIONS_V2`, `SET_VARIABLES`,
+  `GET_VARIABLE` e `SET_PIXEL_FORMAT` definem a opção e a negociação do formato.
+- `RETRO_ENVIRONMENT_GET_CAN_DUPE`, `retro_video_refresh_t`, `retro_pixel_format` e o contrato de
+  `retro_run` definem dimensões, pitch e `NULL` como duplicação de quadro.
+- `retro_audio_sample_batch_t` define que `frames` conta pares de amostras estéreo.
+- `retro_input_poll_t`, `retro_input_state_t`, `RETRO_DEVICE_JOYPAD` e os IDs até
+  `RETRO_DEVICE_ID_JOYPAD_R3` definem a leitura dos 16 botões.
+- `RETRO_MEMORY_SYSTEM_RAM`, `retro_get_memory_data` e `retro_get_memory_size` definem a região
+  exposta pelo core.
+- `retro_serialize_size`, `retro_serialize` e `retro_unserialize` definem o contrato de estado;
+  o tamanho mínimo exigido pela API é respeitado, e este core escolhe exigir tamanho exato.
+- `RETRO_ENVIRONMENT_GET_LOG_INTERFACE` fornece o callback usado para registrar inicialização e
+  carregamento.
+
+### Problemas encontrados
+
+- O primeiro build apontou uma função auxiliar de leitura de 32 bits não usada. Ela foi removida;
+  o build final foi refeito sem warnings.
+
+### Para fixar
+
+1. Por que `need_fullpath = false` faz o front-end passar `data` e `size` ao core?
+2. Se uma linha tem 64 pixels de 16 bits e mais 16 bytes de padding, qual é o pitch em bytes?
+3. O que o front-end deve fazer quando `retro_video_refresh` recebe `data == NULL`?
+4. Por que o tamanho serializado é `8 + 65.536`, e por que não serializar a `struct` C diretamente?
+5. Exercício: altere o core para emitir um quadro duplicado a cada terceiro frame e atualize um
+   teste que verifique a contagem de quadros após uma duplicação.

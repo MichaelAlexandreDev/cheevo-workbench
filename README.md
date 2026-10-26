@@ -30,10 +30,10 @@ Distribution: AppImage + AUR → Flatpak later
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Minimal libretro front-end: load core + content, video, audio, input, save states | 🟡 |
-| 2 | Memory viewer + memory search (bits, 4/8/16/24/32-bit, filters), watch list | ⏳ |
+| 2 | Memory viewer + memory search (bits, 4/8/16/24/32-bit, filters), watch list, code notes | ⏳ |
 | 3 | rcheevos integration: game hash, live achievement testing | ⏳ |
 | 4 | Achievement editor reading/writing RAIntegration local files (`<GameID>-User.txt`) | ⏳ |
-| 5 | Code notes + memory bookmarks | ⏳ |
+| 5 | Code notes in the achievement editor + memory bookmarks | ⏳ |
 | 6 | Rich Presence + leaderboards | ⏳ |
 | 7 | Server integration (**only with RetroAchievements team approval**) | 🔒 |
 

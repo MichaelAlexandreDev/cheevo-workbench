@@ -17,7 +17,7 @@ as janelas de dev. É separado porque a RA usa a mesma DLL em vários emuladores
 
 - Só temos um emulador (libretro já cobre todos os consoles via cores).
 - A DLL é Win32 e não roda no Linux; o que importa ser compatível são os **arquivos**
-  (`RACache/Data/<GameID>-User.txt`, `-Rich.txt`, `-Notes.json`, bookmarks).
+  (`RACache/Data/<GameID>-User.txt`, `-Rich.txt`, bookmarks).
 - Mas por dentro mantemos a divisão:
   - `src/frontend/` → papel do RALibretro
   - `src/devtools/` → papel do RAIntegration (biblioteca que só enxerga "um bloco de memória",
@@ -56,9 +56,30 @@ O rcheevos já monta todas as requisições ao servidor (`rc_api_init_login_requ
 site oficial pode corromper sets e usa a sua conta. Até a equipe do RA aprovar, o fluxo é:
 desenvolver aqui → abrir o RAIntegration oficial (Wine) → ele lê os mesmos arquivos → upload.
 
+## Code notes: o `-Notes.json` é cache, não arquivo local
+
+Descoberto na revisão do Codex (e conferido): o RAIntegration grava em
+`RACache/Data/<GameID>-Notes.json` a **resposta do servidor** com as notas
+(`reference/RAIntegration/src/devkit/context/impl/RcClient.cpp`, `CacheCodeNotesResponse`) e só lê
+esse arquivo no modo offline.
+
+As notas que você cria ou altera no RAIntegration **não** vão direto para o servidor: ficam no
+`-User.txt` como linhas `N0:0x001234:"texto"` (`MemoryNotesModel.cpp`, `Serialize`) e são enviadas
+junto com as conquistas, no upload (`AssetUploadViewModel.cpp`, `QueueMemoryNotes`).
+
+Decisão (2026-10-26): mesmo assim, as **suas** notas ficam num arquivo nosso
+(`~/.local/share/cheevo-workbench/notes/`); as do servidor aparecem só para leitura, a partir do
+cache; e uma lista "para publicar" mostra o que copiar no RAIntegration. As notas vieram para o
+passo **2.5**, junto da pesquisa de memória, que é quando você mais anota. Exportar as notas
+como linhas `N0:` no `-User.txt` (para o RAIntegration enviá-las sozinho) ficou como opção futura.
+
+Lição: o nome de um arquivo não diz para que ele serve; é preciso ver **quem escreve** e **quem lê**.
+E uma afirmação só vale depois de conferida no código: aqui, duas suposições minhas estavam erradas.
+
 ## Para fixar
 
 1. Por que o RAIntegration é uma DLL e não um programa?
 2. O que precisa ser compatível com o RAIntegration: o código ou os arquivos?
 3. Por que `devtools/` não pode depender do SDL?
 4. Por que não podemos copiar código do RALibretro, mas poderíamos copiar do RAIntegration?
+5. Por que não gravamos as suas code notes no `-Notes.json`?
