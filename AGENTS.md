@@ -7,9 +7,10 @@ imports it from `CLAUDE.md`). Keep this file as the single source of truth.
 
 Native Linux developer tooling for RetroAchievements (RA): a libretro front-end with built-in
 dev tools (memory search/viewer, achievement editor, code notes, Rich Presence), compatible
-with the official Windows toolkit (RALibretro + RAIntegration). See `README.md` for the roadmap.
+with the official Windows toolkit (RALibretro + RAIntegration). The step-by-step roadmap is
+`docs/roadmap.md` (single source of truth for steps, dependencies and status).
 
-**Status:** milestone 1 in progress — step 1.1 (CMake skeleton, SDL3 + ImGui window) done.
+**Status:** milestone 1 in progress — steps 1.1 and 1.2 done (see `docs/roadmap.md`).
 
 **Approach:** written from scratch (not a port of RALibretro/RAIntegration). Shallow clones of
 `RALibretro` (GPL-3.0), `RAIntegration` (MIT) and `rcheevos` (MIT) live in `reference/`

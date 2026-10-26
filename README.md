@@ -29,13 +29,15 @@ Distribution: AppImage + AUR → Flatpak later
 
 | # | Milestone | Status |
 |---|---|---|
-| 1 | Minimal libretro front-end: load core + content, video, audio, input, save states | ⏳ |
-| 2 | Memory viewer + memory search (8/16/32-bit, bits, filters) | ⏳ |
+| 1 | Minimal libretro front-end: load core + content, video, audio, input, save states | 🟡 |
+| 2 | Memory viewer + memory search (bits, 4/8/16/24/32-bit, filters), watch list | ⏳ |
 | 3 | rcheevos integration: game hash, live achievement testing | ⏳ |
 | 4 | Achievement editor reading/writing RAIntegration local files (`<GameID>-User.txt`) | ⏳ |
 | 5 | Code notes + memory bookmarks | ⏳ |
 | 6 | Rich Presence + leaderboards | ⏳ |
 | 7 | Server integration (**only with RetroAchievements team approval**) | 🔒 |
+
+Step-by-step breakdown, dependencies and status: [`docs/roadmap.md`](docs/roadmap.md).
 
 After milestone 4, an achievement set can be developed entirely on Linux and uploaded
 through the official RAIntegration (via Wine), which reads the same local files.
