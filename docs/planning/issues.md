@@ -47,7 +47,7 @@ platform-independent memory and file-format logic in `cw_devtools`.
 - **Out of scope:** Rendering frames, audio playback/pacing, controller mapping, save-state UI,
   core-options UI, and server access.
 
-### [1.2b] Build a synthetic libretro test core — planned
+### [1.2b] Build a synthetic libretro test core — done
 
 - **Objective:** Provide a deterministic core fixture for automated front-end tests without ROMs or
   BIOS files.
