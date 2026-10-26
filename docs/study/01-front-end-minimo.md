@@ -8,7 +8,7 @@ save states).
 | 1.1 | Esqueleto: git, submódulos, CMake, janela SDL3 + ImGui | ✅ |
 | 1.2 | Carregar o core libretro | ✅ |
 | 1.2b | Core de teste sintético (testes sem ROM) | ✅ |
-| 1.3 | Vídeo | ⏳ |
+| 1.3 | Vídeo | ✅ |
 | 1.4 | Áudio e sincronia | ⏳ |
 | 1.5 | Input | ⏳ |
 | 1.6 | Save states | ⏳ |
@@ -368,3 +368,103 @@ controlado e conteúdo não protegido. Conferimos os contratos diretamente no `l
 4. Por que o tamanho serializado é `8 + 65.536`, e por que não serializar a `struct` C diretamente?
 5. Exercício: altere o core para emitir um quadro duplicado a cada terceiro frame e atualize um
    teste que verifique a contagem de quadros após uma duplicação.
+
+---
+
+## 1.3 · Vídeo
+
+### O que foi feito
+
+- **Conversão de pixels** (`src/frontend/video_frame.*`, na `cw_frontend`): cada frame do core é
+  convertido para RGBA8 (4 bytes por pixel, linhas sem padding) a partir dos 3 formatos do
+  libretro, respeitando o **pitch**.
+- **`LibretroCore`** guarda o último frame (`video_frame()`), com um `serial` que só aumenta
+  quando chega imagem nova. Frame duplicado (`data == NULL`) mantém imagem e serial.
+  `SET_GEOMETRY` atualiza só largura, altura e proporção. `SET_HW_RENDER` agora é recusado
+  explicitamente (com log), e o core cai para renderização por software.
+- **`GameView`** (`src/frontend/game_view.*`, só no executável): envia o frame para uma textura
+  OpenGL (só quando o serial muda) e desenha a imagem centralizada no nó central do dock, com a
+  proporção do core e filtro *nearest* (pixels nítidos).
+- **Core de teste** ganhou uma opção para mudar de resolução no frame 3 e passou a pedir
+  renderização por hardware no `load_game` (para provar que recusamos).
+- **Testes:** conversão com buffers montados à mão (cada formato, padding, entradas inválidas) e,
+  com o core de teste, pixels esperados em cada formato, frame duplicado e mudança de geometria.
+  13 casos / 224 verificações; limpos no ASan/UBSan.
+
+### Conceitos
+
+**Pitch × largura.** A largura é em *pixels*; o pitch é o tamanho da linha em *bytes* e pode ter
+sobra no fim (padding). O endereço do pixel (x, y) é `data + y * pitch + x * bytes_por_pixel`.
+Usar `y * largura * bytes_por_pixel` funciona até o dia em que um core manda padding, e aí a imagem
+sai "entortada" em diagonal. (O teste de mutação mostrou isso: 6 testes falham.)
+
+**Os três formatos do libretro** (valores de 16/32 bits na ordem nativa da máquina):
+
+| Formato | Bits | Canal de 5 bits → 8 bits |
+|---|---|---|
+| 0RGB1555 | `0 RRRRR GGGGG BBBBB` (bit 15 ignorado) | `(v << 3) \| (v >> 2)` |
+| RGB565 | `RRRRR GGGGGG BBBBB` (verde com 6 bits) | verde: `(v << 2) \| (v >> 4)` |
+| XRGB8888 | `XXXXXXXX RRRRRRRR GGGGGGGG BBBBBBBB` | já é 8 bits |
+
+Por que `(v << 3) | (v >> 2)` e não só `v << 3`? Com `v << 3`, o máximo (31) vira 248, e o branco
+fica cinza-claro. Repetindo os bits de cima nos de baixo, 31 vira 255.
+
+**Conversão na CPU × direto na GPU.** O RALibretro manda cada formato direto para o OpenGL
+(`GL_UNSIGNED_SHORT_5_6_5`, `GL_UNPACK_ROW_LENGTH` para o pitch). É mais rápido, mas só dá para
+testar com uma GPU. Nós convertemos para RGBA8 na CPU: um frame de PS1 (320×240) são ~77 mil
+pixels, nada para a CPU a 60 fps, e a conversão vira uma função pura, testável sem janela.
+
+**Frame duplicado ("dupe").** Respondemos `GET_CAN_DUPE = true`; então, quando nada mudou, o core
+pode passar `NULL` em vez de reenviar a imagem. O `serial` deixa o `GameView` pular o envio para
+a GPU nesses frames.
+
+**Proporção (aspect ratio).** O core informa a proporção em que a imagem deve ser *mostrada*, que
+pode ser diferente de largura/altura (pixels de console nem sempre são quadrados). Se for `<= 0`,
+o `libretro.h` manda usar largura/altura. Desenhamos o maior retângulo com essa proporção que cabe
+na área ("letterbox").
+
+**Desenhar atrás das janelas.** `ImGui::GetBackgroundDrawList()` é desenhada antes de todas as
+janelas do ImGui. A imagem vai lá, no retângulo do nó central do dock
+(`DockBuilderGetCentralNode`, que fica em `imgui_internal.h`: API interna, pode mudar entre versões
+do ImGui).
+
+**Recursos OpenGL têm dono.** A textura só existe enquanto existe o contexto OpenGL. Por isso
+`GameView::release()` é chamado *antes* de destruir o contexto; chamar `glDeleteTextures` sem
+contexto é comportamento indefinido.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/frontend/video_frame.cpp`: a conversão (curta, vale ler linha a linha).
+2. `tests/test_video_frame.cpp`: como os buffers com padding são montados.
+3. `src/frontend/libretro_core.cpp`: `on_video_refresh`, `SET_GEOMETRY`, `SET_HW_RENDER`,
+   `clear_frame`.
+4. `src/frontend/game_view.cpp`: textura, envio e o cálculo do letterbox em `draw`.
+5. `src/frontend/main.cpp`: onde `update` e `draw` entram no loop.
+6. Referência: `reference/RALibretro/src/components/Video.cpp`, função `refresh` (o caminho
+   "direto na GPU").
+
+### O que aprendemos com a referência
+
+- O RALibretro envia o formato nativo para a GPU e usa `GL_UNPACK_ROW_LENGTH` (em pixels) para o
+  pitch; escolhemos converter na CPU pela testabilidade (ver acima).
+- Ele cria a textura no tamanho **máximo** e desenha só a parte usada. Nós recriamos a textura
+  quando a resolução muda, o que é mais simples; mudanças de resolução são raras.
+
+### Problemas encontrados
+
+- **Captura de tela no Wayland/GNOME:** ferramentas externas não conseguem capturar a janela, então
+  a verificação visual é sua; os testes cobrem os pixels.
+- **Serial reiniciando:** se o serial voltasse a 0 ao carregar outro jogo, o `GameView` podia achar
+  que já tinha aquele frame e mostrar a imagem antiga. Por isso o serial nunca é zerado.
+- **Teste de mutação:** os testes passaram de primeira, então introduzimos 3 bugs de propósito
+  (ignorar o pitch, aceitar hardware rendering, dupe apagando a imagem). Cada um fez testes
+  falharem: os testes realmente testam.
+
+### Para fixar
+
+1. Um frame 0RGB1555 de 320 pixels de largura tem pitch 1024. Quantos bytes de padding há por linha?
+2. Por que `expand5(31)` precisa dar 255, e quanto daria só com `v << 3`?
+3. O que o `GameView` faz quando o core manda um frame duplicado? E por quê?
+4. Se o core informar `aspect_ratio = 0` para um frame de 256×224, qual proporção desenhamos?
+5. Exercício: na janela Status, mostre também o formato de pixel atual (dica:
+   `core.pixel_format()`).

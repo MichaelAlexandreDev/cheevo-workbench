@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core_options.hpp"
+#include "video_frame.hpp"
 
 #include <libretro.h>
 
@@ -54,10 +55,16 @@ class LibretroCore {
     const retro_system_av_info& av_info() const { return av_info_; }
     retro_pixel_format pixel_format() const { return pixel_format_; }
     const CoreOptions& options() const { return options_; }
+    // Changes a core option; the core sees it on its next GET_VARIABLE(_UPDATE). Returns false
+    // for an unknown key or a value the core did not declare.
+    bool set_option(const std::string& key, const std::string& value) {
+        return options_.set(key, value);
+    }
     uint64_t frame_count() const { return frame_count_; }
-    // Size of the last frame the core produced (the frame itself is drawn from step 1.3 on).
-    unsigned last_frame_width() const { return last_frame_width_; }
-    unsigned last_frame_height() const { return last_frame_height_; }
+    // Last image the core produced, already converted to RGBA8.
+    const VideoFrame& video_frame() const { return frame_; }
+    unsigned last_frame_width() const { return frame_.width; }
+    unsigned last_frame_height() const { return frame_.height; }
 
   private:
     // Entry points looked up in the .so. decltype keeps each signature identical to libretro.h.
@@ -86,6 +93,7 @@ class LibretroCore {
     };
 
     bool load_symbols(std::string& error);
+    void clear_frame();
     bool environment(unsigned cmd, void* data);
 
     // Static trampolines handed to the core; they forward to s_active.
@@ -119,8 +127,8 @@ class LibretroCore {
     std::set<unsigned> reported_unsupported_; // log each unsupported call only once
 
     uint64_t frame_count_ = 0;
-    unsigned last_frame_width_ = 0;
-    unsigned last_frame_height_ = 0;
+    VideoFrame frame_;
+    bool reported_bad_frame_ = false; // log a rejected frame only once
 };
 
 } // namespace cw

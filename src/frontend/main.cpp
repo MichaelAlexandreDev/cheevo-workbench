@@ -1,6 +1,7 @@
 // cheevo-workbench entry point: creates the SDL3 window with an OpenGL context, loads the
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
+#include "game_view.hpp"
 #include "libretro_core.hpp"
 #include "paths.hpp"
 
@@ -9,6 +10,7 @@
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl3.h>
+#include <imgui_internal.h> // DockBuilderGetCentralNode: where the game is drawn
 
 #include <cstdio>
 #include <filesystem>
@@ -141,7 +143,10 @@ void draw_status_window(const cw::LibretroCore& core, const std::string& load_er
             const retro_system_av_info& av = core.av_info();
             ImGui::Text("Geometry: %ux%u (max %ux%u)", av.geometry.base_width,
                         av.geometry.base_height, av.geometry.max_width, av.geometry.max_height);
-            ImGui::Text("Last frame: %ux%u", core.last_frame_width(), core.last_frame_height());
+            ImGui::Text("Last frame: %ux%u, aspect %.3f", core.last_frame_width(),
+                        core.last_frame_height(), av.geometry.aspect_ratio);
+            ImGui::Text("Images received: %llu",
+                        static_cast<unsigned long long>(core.video_frame().serial));
             ImGui::Text("Core timing: %.3f fps, audio %.0f Hz", av.timing.fps,
                         av.timing.sample_rate);
             ImGui::Text("Frames run: %llu", static_cast<unsigned long long>(core.frame_count()));
@@ -213,6 +218,7 @@ int main(int argc, char** argv) {
 
     // Loaded after the GL context exists: hardware-rendered cores will need it.
     cw::LibretroCore core;
+    cw::GameView game_view;
     const std::string load_error = load_from_options(core, *launch);
     if (!load_error.empty()) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", load_error.c_str());
@@ -235,13 +241,22 @@ int main(int argc, char** argv) {
         // One emulated frame per UI frame. With vsync at 60 Hz this is close to the PS1's
         // ~59.94 fps; proper timing based on the core's fps comes with audio (step 1.4).
         core.run_frame();
+        game_view.update(core.video_frame());
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
-        // Passthru keeps the central area see-through: the game image will be drawn there.
-        ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+        // Passthru keeps the central area of the dock see-through. The game is drawn there on
+        // the background draw list, i.e. behind every ImGui window, so docked tool windows
+        // around it never cover the image.
+        const ImGuiID dockspace =
+            ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+        if (const ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockspace)) {
+            const ImVec2 max(central->Pos.x + central->Size.x, central->Pos.y + central->Size.y);
+            game_view.draw(ImGui::GetBackgroundDrawList(), central->Pos, max,
+                           core.av_info().geometry.aspect_ratio);
+        }
         draw_main_menu(ui);
         draw_status_window(core, load_error);
         if (ui.show_imgui_demo) {
@@ -258,6 +273,7 @@ int main(int argc, char** argv) {
     }
 
     core.unload(); // before the GL context goes away
+    game_view.release();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

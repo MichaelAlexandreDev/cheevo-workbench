@@ -32,8 +32,12 @@ class CoreOptions {
     void set_definitions_v2(const retro_core_option_v2_definition* definitions);
 
     // Current value for GET_VARIABLE, or nullptr if the core never declared the key.
-    // The pointer stays valid until the options are cleared or redeclared.
+    // The pointer stays valid until that option changes or the options are cleared/redeclared.
     const char* get(const char* key) const;
+
+    // Sets an option to one of the values the core declared. Returns false (and changes
+    // nothing) for an unknown key or value. A real change is reported by take_updated().
+    bool set(const std::string& key, const std::string& value);
 
     // GET_VARIABLE_UPDATE: true once after any value changed.
     bool take_updated();
