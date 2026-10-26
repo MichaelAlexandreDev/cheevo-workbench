@@ -9,7 +9,7 @@ save states).
 | 1.2 | Carregar o core libretro | ✅ |
 | 1.2b | Core de teste sintético (testes sem ROM) | ✅ |
 | 1.3 | Vídeo | ✅ |
-| 1.4 | Áudio e sincronia | ⏳ |
+| 1.4 | Áudio e sincronia | ✅ |
 | 1.5 | Input | ⏳ |
 | 1.6 | Save states | ⏳ |
 | 1.7 | Menu, abrir arquivos, pausar, avançar frame | ⏳ |
@@ -477,3 +477,120 @@ contexto é comportamento indefinido.
 5. Exercício: na janela Status, mostre também o formato de pixel atual (dica:
    `core.pixel_format()`).
 6. Por que verificamos `width > kMaxFrameSide` *antes* de calcular `width * height * 4`, e não depois?
+
+---
+
+## 1.4 · Áudio e ritmo dos frames
+
+### O que foi feito
+
+- `LibretroCore` agora recebe um `AudioSink` não dono. Os callbacks de amostra única e de lote
+  juntam pares estéreo intercalados durante `retro_run()`; ao fim do frame, o core chama o sink uma
+  vez com todo o áudio acumulado. O lote vazio também é entregue quando um frame não produz áudio.
+- `SdlAudioOutput` abre o dispositivo padrão de reprodução com `SDL_OpenAudioDeviceStream`, PCM
+  S16 estéreo e a taxa informada pelo core. O SDL converte para o dispositivo. Se
+  `SET_SYSTEM_AV_INFO` mudar a taxa, o stream é reaberto. Falhas são registradas e aparecem na
+  janela Status; sem stream, o loop usa o relógio e continua sem som.
+- `FramePacer` é lógica pura, sem SDL. Com áudio, tenta manter cerca de 50 ms na fila e limita cada
+  volta a três frames. Sem áudio, acumula tempo usando o FPS declarado pelo core. Após uma pausa de
+  mais de 250 ms, descarta os frames vencidos para não criar uma rajada. A API de pausa retorna a
+  transição para pausado; o chamador limpa a fila de áudio. Os controles de pausa continuam sendo
+  parte do passo 1.7.
+- A janela Status mostra dispositivo ou erro, áudio enfileirado em milissegundos, modo de ritmo e
+  FPS medido a partir dos frames realmente executados. O vsync segue limitando a apresentação da
+  interface, enquanto o pacer determina quando o core roda.
+- O core sintético agora testa áudio em lote e por amostra, a sequência estéreo determinística e a
+  notificação de mudança da taxa de amostragem.
+
+### Conceitos
+
+**Amostras e frames de áudio.** No libretro, uma amostra é um valor de um canal; um *frame* de
+áudio estéreo contém dois `int16_t` intercalados, esquerdo e direito. O callback em lote recebe a
+quantidade de frames estéreo, não a quantidade total de valores. Por isso, 735 frames são 1470
+ valores `int16_t`.
+
+**Callbacks curtos, entrega em lote.** O core pode chamar o callback por amostra até 1470 vezes em
+um `retro_run()`, ou fazer uma chamada em lote. O front-end guarda os pares num vetor e só chama o
+sink ao final de `retro_run()`. Assim, o core não conhece SDL e o caminho por amostra não faz uma
+chamada ao dispositivo a cada valor.
+
+**`SDL_AudioStream` e reamostragem.** O formato de entrada da stream é o que o core produz
+(S16, dois canais, taxa do core). O SDL converte para o formato e a taxa que o dispositivo suporta.
+`SDL_GetAudioStreamQueued()` informa bytes ainda enfileirados no formato de entrada; dividimos pela
+taxa de bytes por segundo para obter segundos de áudio pendente. Uma nova taxa em
+`SET_SYSTEM_AV_INFO` exige uma stream com outro formato de entrada.
+
+**Dois relógios possíveis.** Com dispositivo de áudio, a fila é o relógio: se cair abaixo de 50 ms,
+o pacer agenda frames suficientes para preenchê-la, até o limite por volta. Sem áudio disponível,
+`steady_clock` e o FPS do core formam um acumulador de tempo. O FPS medido é independente do FPS
+declarado e conta frames executados por tempo real.
+
+**Ressincronização.** Depois de uma pausa longa, tentar executar todos os frames perdidos criaria
+uma sequência de chamadas rápidas ao core. O pacer zera o acumulador e retoma no próximo intervalo
+normal. No modo de áudio, o tamanho máximo do lote e a fila limitada dão o mesmo limite à retomada.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/frontend/audio_sink.hpp`: contrato de áudio independente de SDL.
+2. `src/frontend/libretro_core.cpp`: acúmulo dos callbacks e entrega no fim de `run_frame()`;
+   atualização da taxa em `SET_SYSTEM_AV_INFO`.
+3. `src/frontend/sdl_audio_output.cpp`: stream SDL3, reabertura e tratamento de falhas.
+4. `src/frontend/frame_pacer.cpp`: decisões de ritmo e medição com tempo injetado.
+5. `src/frontend/main.cpp`: integração no loop e linhas da janela Status.
+6. `tests/test_libretro_core.cpp`, `tests/test_frame_pacer.cpp` e
+   `tests/test_core/test_core.c`: sequência determinística, callbacks e simulações.
+7. Referência: `reference/RALibretro/src/components/Audio.cpp` (somente comparação de desenho).
+8. API: `third_party/libretro-common/include/libretro.h`, callbacks de áudio e
+   `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO`.
+
+### O que aprendemos com a referência
+
+- O `Audio.cpp` do RALibretro reamostra com Speex e escreve numa FIFO própria; se ela estiver cheia,
+  o modo bloqueante espera e pode limpá-la após 250 ms. Aqui usamos a conversão e a fila do
+  `SDL_AudioStream`, que aceitam lotes sem espera manual. O callback libretro fica desacoplado do
+  backend SDL.
+- A taxa não é fixa no front-end: o core informa o formato temporal inicial e pode atualizá-lo por
+  `SET_SYSTEM_AV_INFO`. O sink recebe a taxa nova e reabre o dispositivo.
+
+### Problemas encontrados
+
+- **Limite do relógio simulado:** o primeiro teste de travada longa falhou por poucos nanossegundos
+  quando `1/60` foi convertido para o relógio monotônico. O acumulador agora usa uma pequena margem
+  numérica antes de truncar o número de frames devidos; os casos 60/50 FPS em 60/144 Hz passam.
+- **Ambiente sem janela Wayland acessível:** a execução normal terminou com `No available video
+  device`. Com `SDL_VIDEODRIVER=offscreen`, o app abriu, carregou o Beetle PSX e o jogo, e o log
+  confirmou o fallback com `SDL_AUDIO_DRIVER=driver-inexistente`. O core continuou rodando sem
+  áudio; medições de aproximadamente 59,8–61,0 FPS ficaram próximas dos 59,940 declarados. A
+  janela Status não pôde ser inspecionada visualmente nesse backend offscreen.
+- **Driver de áudio padrão do container:** a tentativa de inicialização imprimiu
+  `pa_write() failed while trying to wake up the mainloop: Operation not permitted` e não chegou
+  aos logs de carregamento do core em 12 segundos; encerrei o processo. O driver `dummy` e o nome
+  inexistente retornam normalmente. O backend padrão não pôde ser validado neste sandbox.
+  `SDL_InitSubSystem()` deve rodar na thread principal (`SDL3/SDL_init.h`),
+  então não é seguro contornar esse bloqueio movendo a inicialização para uma thread em background.
+- **Saída de áudio disponível para teste:** com `SDL_AUDIO_DRIVER=dummy`, o log confirmou o stream
+  estéreo a 44100 Hz e o pacer mediu entre 58,6 e 61,0 FPS, em torno de 59,7 após o início.
+
+### Na revisão (Claude, no seu Arch com áudio de verdade)
+
+- **O áudio real funciona.** No ambiente do Codex a inicialização do PipeWire travava (sem acesso
+  ao servidor de áudio). No seu Arch, o SDL abriu "Ryzen HD Audio Controller Analog Stereo" a
+  44100 Hz normalmente; o SDL reamostra para os 48000 Hz do PipeWire.
+- **Medir certo antes de concluir.** O "FPS medido" da janela Status oscilou entre 56,5 e 61,4 e
+  pareceu indicar o jogo 3% lento. Mas cada leitura cobre só ~1 s, e o pacer roda até 3 frames por
+  vez: isso dá um erro de ±3 fps por leitura. Medindo do jeito certo (duas execuções, 8 s e 28 s, e
+  dividindo a *diferença* de frames pela *diferença* de tempo, o que cancela a inicialização), a
+  velocidade real foi **59,75 fps para 59,94 pedidos (−0,3%)**, dentro do erro da própria medição.
+  Lição: uma janela curta de medição pode mostrar um problema que não existe.
+
+### Para fixar
+
+1. Em `retro_audio_sample_batch_t`, por que `frames == 735` representa 1470 valores `int16_t`?
+2. Por que `AudioSink::write()` acontece uma vez depois de `retro_run()` em vez de dentro de cada
+   callback libretro?
+3. Como o SDL sabe a taxa de entrada do core e por que é preciso reabrir a stream após
+   `SET_SYSTEM_AV_INFO`?
+4. O que acontece com o ritmo quando a abertura do dispositivo falha? Qual valor a janela Status
+   mostra para o modo de pacing?
+5. Por que o pacer descarta frames vencidos depois de uma travada longa em vez de tentar alcançá-los?
+6. Exercício: ligue `cw_test_audio_mode=single` e compare o vetor capturado ao caminho em lote.

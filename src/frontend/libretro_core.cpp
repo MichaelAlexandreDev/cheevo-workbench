@@ -167,6 +167,9 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     clear_frame();
 
     api_.get_system_av_info(&av_info_);
+    if (audio_sink_) {
+        audio_sink_->set_sample_rate(av_info_.timing.sample_rate);
+    }
     const retro_game_geometry& g = av_info_.geometry;
     SDL_Log("Game loaded: %ux%u (max %ux%u, aspect %.3f), %.3f fps, audio %.0f Hz, pixels %s",
             g.base_width, g.base_height, g.max_width, g.max_height, g.aspect_ratio,
@@ -175,6 +178,10 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
 }
 
 void LibretroCore::unload() {
+    if (audio_sink_) {
+        audio_sink_->clear();
+    }
+    audio_samples_.clear();
     if (game_loaded_) {
         SDL_Log("Unloading game after %llu frames", static_cast<unsigned long long>(frame_count_));
         api_.unload_game();
@@ -211,8 +218,25 @@ void LibretroCore::clear_frame() {
 
 void LibretroCore::run_frame() {
     if (game_loaded_) {
+        audio_samples_.clear();
+        audio_buffer_failed_ = false;
         api_.run();
         ++frame_count_;
+        if (audio_sink_ && !audio_buffer_failed_) {
+            audio_sink_->write(audio_samples_.data(), audio_samples_.size() / 2);
+        }
+        audio_samples_.clear();
+    }
+}
+
+void LibretroCore::set_audio_sink(AudioSink* sink) {
+    if (audio_sink_ && audio_sink_ != sink) {
+        audio_sink_->clear();
+    }
+    audio_sink_ = sink;
+    audio_samples_.clear();
+    if (audio_sink_ && game_loaded_) {
+        audio_sink_->set_sample_rate(av_info_.timing.sample_rate);
     }
 }
 
@@ -254,6 +278,14 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
 
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
         av_info_ = *static_cast<const retro_system_av_info*>(data);
+        if (audio_sink_) {
+            try {
+                audio_sink_->set_sample_rate(av_info_.timing.sample_rate);
+            } catch (...) {
+                SDL_LogError(SDL_LOG_CATEGORY_AUDIO,
+                             "Audio sink threw while applying SET_SYSTEM_AV_INFO");
+            }
+        }
         return true;
 
     case RETRO_ENVIRONMENT_SET_GEOMETRY: {
@@ -382,10 +414,44 @@ void LibretroCore::on_video_refresh(const void* data, unsigned width, unsigned h
     ++frame.serial;
 }
 
-void LibretroCore::on_audio_sample(int16_t, int16_t) {}
+void LibretroCore::on_audio_sample(int16_t left, int16_t right) {
+    if (!s_active || !s_active->audio_sink_ || s_active->audio_buffer_failed_) {
+        return;
+    }
+    try {
+        s_active->audio_samples_.push_back(left);
+        s_active->audio_samples_.push_back(right);
+    } catch (...) {
+        s_active->audio_samples_.clear();
+        s_active->audio_buffer_failed_ = true;
+        if (!s_active->reported_audio_buffer_failure_) {
+            SDL_LogError(SDL_LOG_CATEGORY_AUDIO, "Could not buffer audio from the core");
+            s_active->reported_audio_buffer_failure_ = true;
+        }
+    }
+}
 
-size_t LibretroCore::on_audio_sample_batch(const int16_t*, size_t frames) {
-    return frames; // audio output arrives in step 1.4; report everything as consumed
+size_t LibretroCore::on_audio_sample_batch(const int16_t* data, size_t frames) {
+    if (!s_active || frames == 0 || !s_active->audio_sink_) {
+        return frames;
+    }
+    if (!data || s_active->audio_buffer_failed_ ||
+        frames > (s_active->audio_samples_.max_size() - s_active->audio_samples_.size()) / 2) {
+        return 0;
+    }
+
+    try {
+        s_active->audio_samples_.insert(s_active->audio_samples_.end(), data, data + frames * 2);
+    } catch (...) {
+        s_active->audio_samples_.clear();
+        s_active->audio_buffer_failed_ = true;
+        if (!s_active->reported_audio_buffer_failure_) {
+            SDL_LogError(SDL_LOG_CATEGORY_AUDIO, "Could not buffer audio from the core");
+            s_active->reported_audio_buffer_failure_ = true;
+        }
+        return 0;
+    }
+    return frames;
 }
 
 void LibretroCore::on_input_poll() {}

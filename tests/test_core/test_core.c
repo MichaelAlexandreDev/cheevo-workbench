@@ -15,6 +15,8 @@
 #define TEST_CORE_MAX_VIDEO_SIZE (TEST_CORE_MAX_PITCH * TEST_CORE_HEIGHT)
 #define TEST_CORE_OPTION_KEY "cw_test_pixel_format"
 #define TEST_CORE_RESIZE_KEY "cw_test_resize"
+#define TEST_CORE_AUDIO_MODE_KEY "cw_test_audio_mode"
+#define TEST_CORE_SAMPLE_RATE_KEY "cw_test_sample_rate_change"
 /* With cw_test_resize enabled, frames from this one on are 32x16 with a 3:2 aspect ratio,
    announced through SET_GEOMETRY. */
 #define TEST_CORE_RESIZE_FRAME 3U
@@ -24,12 +26,15 @@
 
 static retro_environment_t environment_callback;
 static retro_video_refresh_t video_refresh_callback;
+static retro_audio_sample_t audio_sample_callback;
 static retro_audio_sample_batch_t audio_sample_batch_callback;
 static retro_input_poll_t input_poll_callback;
 static retro_input_state_t input_state_callback;
 static retro_log_printf_t log_callback;
 static bool can_dupe_frames;
 static bool resize_enabled;
+static bool single_sample_audio;
+static bool change_sample_rate;
 static bool hw_render_accepted;
 static unsigned int frame_width = TEST_CORE_WIDTH;
 static unsigned int frame_height = TEST_CORE_HEIGHT;
@@ -76,6 +81,36 @@ static struct retro_core_option_v2_definition core_option_definitions[] = {
             },
         .default_value = "disabled",
     },
+    {
+        .key = TEST_CORE_AUDIO_MODE_KEY,
+        .desc = "Audio callback mode",
+        .desc_categorized = NULL,
+        .info = "Select whether the synthetic core emits audio in a batch or one sample at a time.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"batch", "batch"},
+                {"single", "single"},
+                {NULL, NULL},
+            },
+        .default_value = "batch",
+    },
+    {
+        .key = TEST_CORE_SAMPLE_RATE_KEY,
+        .desc = "Change sample rate at frame 3",
+        .desc_categorized = NULL,
+        .info = "Announce a 48 kHz audio rate through SET_SYSTEM_AV_INFO at frame 3.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"disabled", "disabled"},
+                {"enabled", "enabled"},
+                {NULL, NULL},
+            },
+        .default_value = "disabled",
+    },
     {0},
 };
 
@@ -87,6 +122,8 @@ static struct retro_core_options_v2 core_options_v2 = {
 static struct retro_variable legacy_variables[] = {
     {TEST_CORE_OPTION_KEY, "Pixel format; 0RGB1555|XRGB8888|RGB565"},
     {TEST_CORE_RESIZE_KEY, "Resize at frame 3; disabled|enabled"},
+    {TEST_CORE_AUDIO_MODE_KEY, "Audio callback mode; batch|single"},
+    {TEST_CORE_SAMPLE_RATE_KEY, "Change sample rate at frame 3; disabled|enabled"},
     {NULL, NULL},
 };
 
@@ -191,8 +228,12 @@ static void emit_audio(void) {
         audio_buffer[index * 2U + 1U] = (int16_t)-sample;
     }
 
-    if (audio_sample_batch_callback != NULL)
+    if (single_sample_audio && audio_sample_callback != NULL) {
+        for (index = 0; index < TEST_CORE_AUDIO_FRAMES; ++index)
+            audio_sample_callback(audio_buffer[index * 2U], audio_buffer[index * 2U + 1U]);
+    } else if (audio_sample_batch_callback != NULL) {
         (void)audio_sample_batch_callback(audio_buffer, TEST_CORE_AUDIO_FRAMES);
+    }
 }
 
 unsigned int retro_api_version(void) {
@@ -222,7 +263,7 @@ void retro_set_video_refresh(retro_video_refresh_t callback) {
 }
 
 void retro_set_audio_sample(retro_audio_sample_t callback) {
-    (void)callback;
+    audio_sample_callback = callback;
 }
 
 void retro_set_audio_sample_batch(retro_audio_sample_batch_t callback) {
@@ -298,6 +339,16 @@ bool retro_load_game(const struct retro_game_info* game) {
         resize_enabled = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &resize) &&
                          resize.value != NULL && strcmp(resize.value, "enabled") == 0;
     }
+    {
+        struct retro_variable audio_mode = {TEST_CORE_AUDIO_MODE_KEY, NULL};
+        single_sample_audio = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &audio_mode) &&
+                              audio_mode.value != NULL && strcmp(audio_mode.value, "single") == 0;
+    }
+    {
+        struct retro_variable sample_rate = {TEST_CORE_SAMPLE_RATE_KEY, NULL};
+        change_sample_rate = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &sample_rate) &&
+                             sample_rate.value != NULL && strcmp(sample_rate.value, "enabled") == 0;
+    }
 
     /* Ask for hardware rendering like a GL core would. A software-only front-end must refuse;
        if it accepted, this core would send RETRO_HW_FRAME_BUFFER_VALID instead of pixels and
@@ -351,6 +402,13 @@ void retro_run(void) {
     write_u32_le(system_ram + TEST_CORE_FRAME_COUNT_OFFSET, (uint32_t)frame_count);
     system_ram[TEST_CORE_INPUT_MASK_OFFSET] = (uint8_t)input_mask;
     system_ram[TEST_CORE_INPUT_MASK_OFFSET + 1U] = (uint8_t)(input_mask >> 8U);
+
+    if (change_sample_rate && frame_count == TEST_CORE_RESIZE_FRAME) {
+        struct retro_system_av_info av_info;
+        retro_get_system_av_info(&av_info);
+        av_info.timing.sample_rate = 48000.0;
+        (void)environment_callback(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &av_info);
+    }
 
     if (resize_enabled && frame_count == TEST_CORE_RESIZE_FRAME) {
         struct retro_game_geometry geometry;
