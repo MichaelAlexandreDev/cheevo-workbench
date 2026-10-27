@@ -17,8 +17,8 @@ class SaveStates {
     explicit SaveStates(std::filesystem::path dir) : dir_(std::move(dir)) {}
 
     // "<game file stem>-<core name>.state<slot>", as RALibretro names its slots
-    // (reference/RALibretro/src/States.cpp, getStatePath). Empty if saving is disabled or no
-    // game is loaded.
+    // (reference/RALibretro/src/States.cpp, getStatePath). Empty if saving is disabled, no game
+    // is loaded or `slot` is outside 1..kSlotCount.
     std::filesystem::path slot_path(const LibretroCore& core, int slot) const;
 
     // Both return false with a user-facing reason in `message`, or true with a confirmation.

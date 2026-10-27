@@ -93,6 +93,7 @@ TEST_CASE("Unknown serialization quirks are cleared and variable size is acknowl
     CHECK(plain.core.serialization_quirks() == 0);
     plain.core.unload();
 
+    // ENDIAN_DEPENDENT and the unknown bit are cleared: we cannot enforce them.
     LoadedCore t(/*quirks=*/true);
     CHECK(t.core.serialization_quirks() ==
           (RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE | RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION |
@@ -157,4 +158,19 @@ TEST_CASE("Save states are refused without a data directory or a game") {
     cw::SaveStates states("/nonexistent-dir-for-test");
     CHECK_FALSE(states.save(no_game, 1, message));
     CHECK(message == "No game loaded");
+}
+
+TEST_CASE("Slot numbers outside 1..4 are refused") {
+    TempDir dir;
+    LoadedCore t;
+    cw::SaveStates states(dir.path());
+    std::string message;
+    for (const int slot : {0, -1, cw::SaveStates::kSlotCount + 1}) {
+        CAPTURE(slot);
+        CHECK(states.slot_path(t.core, slot).empty());
+        CHECK_FALSE(states.save(t.core, slot, message));
+        CHECK(message == "Invalid slot " + std::to_string(slot));
+        CHECK_FALSE(states.load(t.core, slot, message));
+    }
+    CHECK(std::filesystem::is_empty(dir.path())); // nothing was written
 }

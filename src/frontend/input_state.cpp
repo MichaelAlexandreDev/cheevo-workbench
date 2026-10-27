@@ -64,10 +64,19 @@ std::span<const GamepadBinding> gamepad_bindings() {
 }
 
 uint16_t map_keyboard_state(std::span<const bool> keys) {
+    auto held = [&keys](SDL_Scancode key) {
+        const auto index = static_cast<size_t>(key);
+        return index < keys.size() && keys[index];
+    };
+    // Shift+F1..F4 saves a state (main.cpp). While one of those F keys is down, Shift is the
+    // hotkey's modifier: without this, saving with Right Shift would also press Select.
+    const bool state_hotkey_held = held(SDL_SCANCODE_F1) || held(SDL_SCANCODE_F2) ||
+                                   held(SDL_SCANCODE_F3) || held(SDL_SCANCODE_F4);
     uint16_t result = 0;
     for (const KeyboardBinding& binding : kKeyboardBindings) {
-        const auto index = static_cast<size_t>(binding.key);
-        if (index < keys.size() && keys[index]) {
+        const bool is_modifier =
+            binding.key == SDL_SCANCODE_LSHIFT || binding.key == SDL_SCANCODE_RSHIFT;
+        if (held(binding.key) && !(is_modifier && state_hotkey_held)) {
             result |= static_cast<uint16_t>(1U << binding.joypad_id);
         }
     }

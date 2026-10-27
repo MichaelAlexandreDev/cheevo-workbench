@@ -20,7 +20,7 @@
 #define TEST_CORE_SAMPLE_RATE_KEY "cw_test_sample_rate_change"
 #define TEST_CORE_QUIRKS_KEY "cw_test_serialization_quirks"
 /* Announced with the quirks option: two real quirks plus a bit libretro does not define, which
-   the front-end must clear. */
+   the front-end must clear (as well as ENDIAN_DEPENDENT, which it cannot enforce). */
 #define TEST_CORE_UNKNOWN_QUIRK ((uint64_t)1 << 40)
 #define TEST_CORE_INPUT_MODE_KEY "cw_test_input_mode"
 /* With cw_test_resize enabled, frames from this one on are 32x16 with a 3:2 aspect ratio,
@@ -395,7 +395,8 @@ bool retro_load_game(const struct retro_game_info* game) {
         if (environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &quirks_option) &&
             quirks_option.value != NULL && strcmp(quirks_option.value, "enabled") == 0) {
             uint64_t quirks = RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE |
-                              RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION | TEST_CORE_UNKNOWN_QUIRK;
+                              RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION |
+                              RETRO_SERIALIZATION_QUIRK_ENDIAN_DEPENDENT | TEST_CORE_UNKNOWN_QUIRK;
             (void)environment_callback(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS, &quirks);
         }
     }

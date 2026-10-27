@@ -780,6 +780,28 @@ válidos dele.
 - Os auxiliares de teste (conteúdo temporário, caminho do core de teste) estavam dentro de um
   arquivo de teste; foram para `tests/test_support.hpp` para os testes novos usarem também.
 
+### Na revisão do Codex (PR #29): 7 de 8 achados aceitos
+
+- **Shift+F1 também apertava Select.** O Shift direito é o Select do teclado; segurando Shift+F1
+  para salvar, o jogo recebia Select. Agora, enquanto F1–F4 está pressionado, o Shift conta como
+  modificador do atalho (`map_keyboard_state`). Achado de uso real, que nenhum de nós tinha visto.
+- **Arquivo `RASTATE` cortado lido como state "cru".** Um arquivo com só `RASTATE` (7 bytes) caía
+  no caminho do formato antigo. Agora, se o arquivo começa com a assinatura, ele precisa estar
+  completo: cabeçalho, blocos com padding e o bloco `END ` (que o RALibretro sempre grava).
+- **Quirks prometidas sem garantia.** Mantínhamos `ENDIAN_DEPENDENT`/`PLATFORM_DEPENDENT` dizendo
+  "os arquivos ficam nesta máquina", mas nada impede você de copiar um state. Agora esses bits são
+  zerados: só prometemos o que conseguimos cumprir.
+- **Duas instâncias salvando o mesmo slot.** O nome temporário era fixo (`.tmp`). Agora é único
+  (PID + contador) e criado com `O_EXCL`, que garante que fomos nós que criamos o arquivo.
+- **Save maior do que o load aceita.** O load recusava arquivos acima de 256 MiB e o save não tinha
+  limite, além de o tamanho do bloco ser de 32 bits. Agora os dois usam o mesmo limite.
+- **Erro de gravação atrasado** (sugestão): o resultado do `close()` também é conferido, porque o
+  sistema pode avisar uma falha de escrita só nesse momento.
+- **Número de slot inválido** (sugestão): 0, −1 ou 5 são recusados.
+- **Rejeitado:** voltar a usar `WantCaptureKeyboard`. Foi uma correção deliberada no 1.5 (o
+  teclado parava depois de um clique numa janela), e o Codex não tinha esse contexto. Saber
+  *quando discordar* de uma revisão, e explicar o porquê, também faz parte.
+
 ### Para fixar
 
 1. Qual a diferença entre um save state e o save do memory card?

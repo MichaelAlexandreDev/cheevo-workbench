@@ -45,12 +45,19 @@ std::vector<uint8_t> write_state_file(std::span<const uint8_t> core_data,
 }
 
 std::optional<StateContents> parse_state_file(std::span<const uint8_t> file, std::string& error) {
-    if (file.size() < kHeaderSize || std::memcmp(file.data(), kMagic, 7) != 0) {
-        if (file.empty()) {
-            error = "The state file is empty";
-            return std::nullopt;
-        }
+    if (file.empty()) {
+        error = "The state file is empty";
+        return std::nullopt;
+    }
+    // Only a file that does not start with (a prefix of) the magic is a raw core state. A file
+    // that starts like "RASTATE" but is shorter than the header was cut off while saving.
+    const size_t magic_len = std::min<size_t>(file.size(), 7);
+    if (std::memcmp(file.data(), kMagic, magic_len) != 0) {
         return StateContents{.core = {file.begin(), file.end()}, .achievements = std::nullopt};
+    }
+    if (file.size() < kHeaderSize) {
+        error = "Truncated RASTATE header";
+        return std::nullopt;
     }
     if (file[7] != kVersion) {
         error = "Unsupported RASTATE version " + std::to_string(file[7]);
@@ -59,6 +66,7 @@ std::optional<StateContents> parse_state_file(std::span<const uint8_t> file, std
 
     StateContents contents;
     bool has_core = false;
+    bool has_end = false;
     size_t pos = kHeaderSize;
     while (pos < file.size()) {
         if (file.size() - pos < kBlockHeaderSize) {
@@ -69,7 +77,8 @@ std::optional<StateContents> parse_state_file(std::span<const uint8_t> file, std
         const size_t size = read_u32_le(header + 4);
         pos += kBlockHeaderSize;
         // Compare against what is left instead of computing pos + size, which could overflow.
-        if (size > file.size() - pos) {
+        // The writer always pads blocks to 8 bytes, so a missing padding also means truncation.
+        if (size > file.size() - pos || align8(size) > file.size() - pos) {
             error =
                 "Truncated block (" + std::string(reinterpret_cast<const char*>(header), 4) + ")";
             return std::nullopt;
@@ -82,11 +91,17 @@ std::optional<StateContents> parse_state_file(std::span<const uint8_t> file, std
         } else if (std::memcmp(header, "ACHV", 4) == 0) {
             contents.achievements.emplace(data.begin(), data.end());
         } else if (std::memcmp(header, "END ", 4) == 0) {
+            has_end = true;
             break;
         } // other blocks (e.g. "SCRN") are not needed and skipped
 
-        // The padding of the last block may be missing; never step past the end.
-        pos += std::min(align8(size), file.size() - pos);
+        pos += align8(size);
+    }
+    // RALibretro always writes the "END " block (States.cpp, saveState); without it the file
+    // was cut at a block boundary and cannot be trusted to be complete.
+    if (!has_end) {
+        error = "Truncated state file (no END block)";
+        return std::nullopt;
     }
     if (!has_core) {
         error = "The state file has no core data (MEM block)";

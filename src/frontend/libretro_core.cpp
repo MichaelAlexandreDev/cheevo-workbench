@@ -324,13 +324,12 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
         // - CORE_VARIABLE_SIZE: retro_serialize_size() is queried before every save, and the
         //   size check on load is relaxed; we acknowledge it with FRONT_VARIABLE_SIZE.
         // - SINGLE_SESSION: enforced by SaveStates (only states saved in this session load).
-        // - ENDIAN/PLATFORM_DEPENDENT: state files stay on this machine.
+        // - ENDIAN/PLATFORM_DEPENDENT: cleared. We cannot tell whether a state file was copied
+        //   from another machine (the file records no host), so we cannot promise it.
         // Unknown bits are cleared: we cannot promise to honor quirks we do not know.
         constexpr uint64_t kSupported =
             RETRO_SERIALIZATION_QUIRK_INCOMPLETE | RETRO_SERIALIZATION_QUIRK_MUST_INITIALIZE |
-            RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE |
-            RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION | RETRO_SERIALIZATION_QUIRK_ENDIAN_DEPENDENT |
-            RETRO_SERIALIZATION_QUIRK_PLATFORM_DEPENDENT;
+            RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE | RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION;
         auto& quirks = *static_cast<uint64_t*>(data);
         quirks &= kSupported;
         if (quirks & RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE) {

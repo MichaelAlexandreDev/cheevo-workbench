@@ -111,3 +111,15 @@ TEST_CASE("Keyboard input is gated by focus and ImGui capture") {
     CHECK_FALSE(cw::keyboard_input_allowed(false, false));
     CHECK_FALSE(cw::keyboard_input_allowed(false, true));
 }
+
+TEST_CASE("Shift held for a save-state hotkey does not press Select") {
+    std::array<bool, SDL_SCANCODE_COUNT> keys{};
+    keys[SDL_SCANCODE_RSHIFT] = true;
+    CHECK(cw::map_keyboard_state(keys) == button_bit(RETRO_DEVICE_ID_JOYPAD_SELECT));
+
+    keys[SDL_SCANCODE_F1] = true; // Shift+F1 = save slot 1
+    CHECK(cw::map_keyboard_state(keys) == 0);
+
+    keys[SDL_SCANCODE_Z] = true; // other buttons still reach the game meanwhile
+    CHECK(cw::map_keyboard_state(keys) == button_bit(RETRO_DEVICE_ID_JOYPAD_B));
+}
