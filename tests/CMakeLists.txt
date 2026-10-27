@@ -11,6 +11,7 @@ add_executable(cw_tests
     test_memory.cpp
     test_memory_search.cpp
     test_input_state.cpp
+    test_file_checks.cpp
     test_frame_pacer.cpp
     test_game_hash.cpp
     test_game_ids.cpp

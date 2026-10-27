@@ -24,20 +24,32 @@ void put_u32_le(std::vector<uint8_t>& disc, size_t offset, uint32_t value) {
     }
 }
 
+// ISO9660 stores most numbers twice: little-endian, then big-endian ("both-byte order").
+void put_u32_both(std::vector<uint8_t>& disc, size_t offset, uint32_t value) {
+    put_u32_le(disc, offset, value);
+    for (int i = 0; i < 4; ++i) {
+        disc[offset + 4 + i] = static_cast<uint8_t>(value >> (8 * (3 - i)));
+    }
+}
+
 // One ISO9660 directory record: extent (first sector), size in bytes and "NAME;1".
 void put_record(std::vector<uint8_t>& disc, size_t& offset, uint32_t extent, uint32_t size,
                 const std::string& name) {
     const size_t length = (33 + name.size() + 1) & ~size_t{1}; // records have an even length
     disc[offset] = static_cast<uint8_t>(length);
-    put_u32_le(disc, offset + 2, extent);
-    put_u32_le(disc, offset + 10, size);
+    put_u32_both(disc, offset + 2, extent);
+    put_u32_both(disc, offset + 10, size);
     disc[offset + 32] = static_cast<uint8_t>(name.size());
     std::memcpy(&disc[offset + 33], name.data(), name.size());
     offset += length;
 }
 
-// A minimal PS1 data disc with 2048-byte sectors:
+// A minimal PS1 data disc with 2048-byte sectors. It holds the parts of ISO9660 (ECMA-119) that
+// rcheevos' parser reads: the volume descriptor set (primary descriptor + terminator), both-byte-
+// order extents and sizes, and directory records. It is NOT a complete ISO9660 image: dates, path
+// tables, volume size and similar fields are left zero.
 //   16: primary volume descriptor ("CD001", root directory at sector 18)
+//   17: volume descriptor set terminator
 //   18: root directory with SYSTEM.CNF and the boot executable SLPS_123.45
 //   19: SYSTEM.CNF ("BOOT = cdrom:\SLPS_123.45;1")
 //   20-21: PS-X EXE: 2048-byte header declaring 2048 bytes of code, code bytes (i*13+5)&0xFF
@@ -50,11 +62,18 @@ std::vector<uint8_t> make_ps1_disc(bool with_system_cnf = true) {
     pvd[0] = 1;
     std::memcpy(pvd + 1, "CD001", 5);
     pvd[6] = 1;
-    pvd[128] = 0x00; // logical block size 2048, little-endian
+    pvd[128] = 0x00; // logical block size 2048: little-endian (128-129), big-endian (130-131)
     pvd[129] = 0x08;
+    pvd[130] = 0x08;
+    pvd[131] = 0x00;
     pvd[156] = 34; // root directory record
-    put_u32_le(disc, 16 * kSector + 156 + 2, 18);
-    put_u32_le(disc, 16 * kSector + 156 + 10, kSector);
+    put_u32_both(disc, 16 * kSector + 156 + 2, 18);
+    put_u32_both(disc, 16 * kSector + 156 + 10, kSector);
+
+    uint8_t* terminator = &disc[17 * kSector];
+    terminator[0] = 255;
+    std::memcpy(terminator + 1, "CD001", 5);
+    terminator[6] = 1;
 
     const std::string cnf = "BOOT = cdrom:\\SLPS_123.45;1\r\nTCB = 4\r\nEVENT = 10\r\n";
     size_t record = 18 * kSector;

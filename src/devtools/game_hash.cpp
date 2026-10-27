@@ -1,8 +1,10 @@
 #include "cw/devtools/game_hash.hpp"
 
+#include "cw/devtools/file_checks.hpp"
+
 #include <rc_hash.h>
 
-#include <system_error>
+#include <utility>
 
 namespace cw {
 
@@ -23,9 +25,8 @@ void RC_CCONV collect_error(const char* message, const rc_hash_iterator_t* itera
 std::optional<std::string> compute_game_hash(const std::filesystem::path& content,
                                              uint32_t console_id, std::string& error) {
     error.clear();
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(content, ec)) {
-        error = "File not found: " + content.string();
+    if (auto problem = regular_file_problem(content)) {
+        error = std::move(*problem);
         return std::nullopt;
     }
 

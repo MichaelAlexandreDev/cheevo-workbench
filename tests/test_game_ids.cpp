@@ -63,3 +63,13 @@ TEST_CASE("A file in another format loads as empty instead of being guessed") {
     ids.load();
     CHECK_FALSE(ids.find(kHash));
 }
+
+TEST_CASE("A failed save changes nothing, in the file or in memory") {
+    TempDir dir;
+    // The parent directory does not exist, so the file cannot be written.
+    cw::GameIds ids(dir.path() / "missing-dir" / "game-ids.txt");
+    std::string error;
+    CHECK_FALSE(ids.set(kHash, 18238, error));
+    CHECK_FALSE(error.empty());
+    CHECK_FALSE(ids.find(kHash)); // the unsaved value is not kept
+}

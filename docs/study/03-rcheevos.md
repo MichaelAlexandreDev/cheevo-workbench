@@ -42,24 +42,29 @@ listado para o jogo, as conquistas não carregam com ele.
 3. Hash = **MD5(nome do executável + conteúdo do executável)**, com o tamanho tirado do cabeçalho
    `PS-X EXE` (+ 2048 bytes do próprio cabeçalho).
 
-Por isso o hash não muda entre `.bin/.cue` e `.chd`, nem se o arquivo for renomeado: só o
-executável importa.
+Por isso o hash não muda se o arquivo for renomeado, nem entre um `.bin/.cue` e outro formato de
+imagem *do mesmo disco*: só o executável importa. (Isso é uma propriedade do algoritmo; para ler um
+`.chd` a ferramenta ainda precisa de um leitor de CHD, que está em "Later / optional".)
 
 **Por que digitar o game ID.** Descobrir o game ID a partir do hash exige perguntar ao servidor do
 RA, e a regra 1 do projeto proíbe falar com o servidor sem aprovação. Então você olha o número na
 página do jogo no site (o Twilight Syndrome é o 18238, na URL `/game/18238`) e digita uma vez.
 
 **Testar sem jogo: um CD sintético.** O teste monta, byte a byte, um "CD de PS1" mínimo: o
-descritor ISO9660 no setor 16, um diretório raiz com `SYSTEM.CNF` e `SLPS_123.45`, e um executável
-inventado. Ele grava um `.bin` + `.cue` numa pasta temporária, e o rcheevos lê como se fosse um
+descritor ISO9660 no setor 16 e o terminador no 17, um diretório raiz com `SYSTEM.CNF` e
+`SLPS_123.45`, e um executável inventado. Ele tem as partes do ISO9660 que o leitor do rcheevos
+usa (com os números nas duas ordens de bytes, como a norma pede), mas **não é uma imagem ISO9660
+completa** (datas, tabelas de caminho e o tamanho do volume ficam zerados). Ele grava um `.bin` + `.cue` numa pasta temporária, e o rcheevos lê como se fosse um
 jogo, pelo caminho de verdade. O hash esperado foi calculado **à parte, em Python** (`hashlib.md5`
 sobre os mesmos bytes): se a nossa ligação com o rcheevos estivesse errada, os dois não bateriam.
 Nenhum dado de jogo real entra no repositório.
 
-**Callbacks por iterador, não globais.** O `rc_hash` aceita funções de log de erro de duas formas:
-globais (`rc_hash_init_error_message_callback`, como o RALibretro faz) ou dentro do iterador
+**Erros por iterador.** O `rc_hash` aceita funções de log de erro de duas formas: globais
+(`rc_hash_init_error_message_callback`, como o RALibretro faz) ou dentro do iterador
 (`iterator.callbacks.error_message`). Usamos a segunda, com o `userdata` apontando para a string
-de erro: cada cálculo de hash tem os seus próprios erros, sem estado global.
+de erro: cada cálculo coleta os seus próprios erros. (O `rc_hash` ainda tem estado global: os
+leitores de arquivo e de CD configurados com `rc_hash_init_custom_*` entram em todo iterador. Não
+configuramos nenhum, então ele usa os padrões.)
 
 ### Arquivos para ler (nesta ordem)
 
@@ -75,6 +80,20 @@ de erro: cada cálculo de hash tem os seus próprios erros, sem estado global.
   callbacks globais, um leitor de arquivos próprio (por causa de nomes com acento no Windows),
   suporte a CHD (`HashCHD.cpp`, com a libchdr) e a zip, e conjuntos de discos (`.m3u`). Nós
   começamos com `.cue/.bin/.iso`; CHD está em "Later / optional".
+
+### Na revisão do Codex (PR #37)
+
+- **Game ID mudando em memória mesmo quando a gravação falhava.** Agora a mudança é feita numa
+  cópia e só vale depois de gravada.
+- **Jogo trocado pelo mesmo caminho mantinha o hash antigo.** O hash agora é recalculado a cada
+  nova sessão de jogo, não só quando o caminho muda.
+- **"Permissão negada" aparecia como "File not found".** A função `regular_file_problem` separa os
+  três casos: não existe, não é arquivo, não deu para acessar (com o motivo do sistema).
+- **Duas afirmações minhas nestas notas estavam fortes demais** ("o hash não muda com `.chd`" e
+  "sem estado global"). Foram corrigidas acima. Notas de estudo também precisam estar certas.
+- **O meu teste de permissão não testava nada.** O teste de mutação mostrou: com o bug de volta,
+  ele só emitia um aviso. Corrigido. Lição: um teste que nunca falha não prova nada; quebrar o
+  código de propósito é como se descobre isso.
 
 ### Problemas encontrados
 

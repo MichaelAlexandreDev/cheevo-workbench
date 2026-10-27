@@ -25,13 +25,14 @@ class GameIds {
     void load();
     std::optional<uint32_t> find(std::string_view hash) const;
     // Stores the ID (0 removes it) and saves the file. Returns false with `error` for an invalid
-    // hash or when the file cannot be written.
+    // hash or when the file cannot be written; then nothing changes, in the file or in memory.
+    // Two running instances editing at once are not coordinated: the last save wins.
     bool set(std::string_view hash, uint32_t game_id, std::string& error);
 
     static bool is_valid_hash(std::string_view hash);
 
   private:
-    bool save(std::string& error) const;
+    bool save(const std::map<std::string, uint32_t, std::less<>>& ids, std::string& error) const;
 
     std::filesystem::path file_;
     std::map<std::string, uint32_t, std::less<>> ids_;

@@ -136,7 +136,11 @@ std::string load_from_options(cw::LibretroCore& core, const LaunchOptions& optio
     if (options.core.empty()) {
         return {};
     }
-    return load_session(core, options.core, options.game, options.system_dir);
+    // Resolved before the core is loaded: a core's retro_init() could change the working
+    // directory, and relative paths would then point somewhere else.
+    const std::filesystem::path game =
+        options.game.empty() ? std::filesystem::path{} : std::filesystem::absolute(options.game);
+    return load_session(core, std::filesystem::absolute(options.core), game, options.system_dir);
 }
 
 // Short message drawn over the game for a moment (e.g. "Saved slot 1"); also logged.
@@ -193,6 +197,7 @@ struct UiState {
     // Identity of the loaded game: its RetroAchievements hash, computed when the game changes,
     // and the game ID the user entered for that hash (no server lookup, AGENTS.md rule 1).
     std::string identified_game_path;
+    std::optional<uint64_t> identified_generation; // game_session_generation it was computed for
     std::string game_hash;
     std::string game_hash_error;
     std::optional<uint32_t> game_id;
@@ -1505,10 +1510,14 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
 // Recomputes the hash when another game is loaded (0.3 ms for a PS1 disc), and looks up the
 // game ID stored for it.
 void update_game_identity(UiState& ui, const cw::LibretroCore& core, const cw::GameIds& ids) {
-    if (core.game_path() == ui.identified_game_path) {
+    // Keyed on the session too, not just the path: reopening a file that was replaced under the
+    // same name must hash the new content.
+    if (core.game_path() == ui.identified_game_path &&
+        ui.identified_generation == ui.game_session_generation) {
         return;
     }
     ui.identified_game_path = core.game_path();
+    ui.identified_generation = ui.game_session_generation;
     ui.game_hash.clear();
     ui.game_hash_error.clear();
     ui.game_id.reset();

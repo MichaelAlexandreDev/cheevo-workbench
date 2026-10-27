@@ -1,5 +1,8 @@
 #include "game_ids.hpp"
 
+#include <unistd.h>
+
+#include <atomic>
 #include <charconv>
 #include <fstream>
 #include <system_error>
@@ -64,25 +67,34 @@ bool GameIds::set(std::string_view hash, uint32_t game_id, std::string& error) {
         error = "Not a RetroAchievements hash: " + std::string(hash);
         return false;
     }
+    // Change a copy and keep it only once it is on disk, so a failed save changes nothing.
+    auto updated = ids_;
     if (game_id == 0) {
-        ids_.erase(std::string(hash));
+        updated.erase(std::string(hash));
     } else {
-        ids_[std::string(hash)] = game_id;
+        updated[std::string(hash)] = game_id;
     }
-    return save(error);
+    if (!save(updated, error)) {
+        return false;
+    }
+    ids_ = std::move(updated);
+    return true;
 }
 
-bool GameIds::save(std::string& error) const {
+bool GameIds::save(const std::map<std::string, uint32_t, std::less<>>& ids,
+                   std::string& error) const {
     if (file_.empty()) {
         return true; // persistence disabled (no config directory)
     }
-    // Write a sibling file and rename it over the old one: a crash never leaves half a file.
+    // Write a sibling file and rename it over the old one: a crash never leaves half a file. The
+    // name is unique per process and call, so two instances never write the same temporary.
+    static std::atomic<unsigned> counter{0};
     std::filesystem::path temp = file_;
-    temp += ".tmp";
+    temp += ".tmp." + std::to_string(::getpid()) + "." + std::to_string(counter++);
     {
         std::ofstream out(temp, std::ios::trunc);
         out << kHeader << '\n';
-        for (const auto& [hash, id] : ids_) {
+        for (const auto& [hash, id] : ids) {
             out << hash << '\t' << id << '\n';
         }
         out.close();
