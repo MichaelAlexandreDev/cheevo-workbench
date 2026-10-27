@@ -93,6 +93,7 @@ class LibretroCore {
     // The console's memory in RetroAchievements addresses (empty when no game is loaded).
     // Built when the game loads, for the console detected from the core's file name.
     const MemoryReader& memory() const { return memory_; }
+    MemoryWriter& memory_writer() { return memory_; }
     uint32_t console_id() const { return memory_.console_id(); }
     // Maps the memory again for another console (e.g. one chosen by the user, or in tests).
     // Returns false if nothing could be mapped.

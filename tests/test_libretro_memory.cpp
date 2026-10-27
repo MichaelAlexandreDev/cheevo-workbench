@@ -89,6 +89,27 @@ TEST_CASE("A PS1 memory map lands on the RetroAchievements PS1 addresses") {
     CHECK(regions[1].end == 0x1FFFFF);
     CHECK(regions[2].description == "Scratchpad RAM");
     CHECK(regions[2].available);
+    CHECK(regions[0].writable);
+    CHECK(regions[1].writable);
+    CHECK(regions[2].writable);
+}
+
+TEST_CASE("Writing to LibretroMemory changes the mapped core RAM") {
+    LoadedCore t("ps1");
+    REQUIRE(t.core.rebuild_memory(RC_CONSOLE_PLAYSTATION));
+
+    const std::array<uint8_t, 3> replacement{0xA1, 0xB2, 0xC3};
+    CHECK(t.core.memory_writer().write(0x000100, replacement) == cw::MemoryWriteError::None);
+
+    std::array<uint8_t, 3> observed{};
+    CHECK(t.core.memory().read(0x000100, observed) == observed.size());
+    CHECK(observed == replacement);
+
+    const std::array<uint8_t, 2> crossing{0xEE, 0xFF};
+    CHECK(t.core.memory_writer().write(0x00FFFF, crossing) ==
+          cw::MemoryWriteError::BoundaryCrossing);
+    CHECK(cw::read_le(t.core.memory(), 0x00FFFF, 1) == 0x22U);
+    CHECK(cw::read_le(t.core.memory(), 0x010000, 1) == 0x33U);
 }
 
 TEST_CASE("The memory map disappears with the game, so nothing can read freed memory") {
@@ -151,4 +172,8 @@ TEST_CASE("A region is available only if all of it is mapped") {
     CHECK(cw::read_le(memory, 0x0FFFFF, 1).has_value());
     CHECK_FALSE(cw::read_le(memory, 0x100000, 1));
     CHECK_FALSE(cw::read_le(memory, 0x200000, 1));
+    CHECK_FALSE(regions[1].writable);
+    CHECK_FALSE(regions[2].writable);
+    CHECK(t.core.memory_writer().write(0x010000, std::array<uint8_t, 1>{0x99}) ==
+          cw::MemoryWriteError::Unavailable);
 }

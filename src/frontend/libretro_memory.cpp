@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -101,16 +102,41 @@ std::vector<MemoryRegionInfo> LibretroMemory::regions() const {
                  .end = r.end_address,
                  .description = r.description ? r.description : "",
                  .available = r.end_address < size() &&
-                              fully_available(regions_, r.start_address, r.end_address)});
+                              fully_available(regions_, r.start_address, r.end_address),
+                 .writable = r.end_address < size() && r.type != RC_MEMORY_TYPE_READONLY &&
+                             fully_available(regions_, r.start_address, r.end_address)});
         }
     } else if (size() > 0) {
         // Unknown console: rc_libretro exposed the core's RAM as one flat block.
         result.push_back({.start = 0,
                           .end = size() - 1,
                           .description = "System RAM",
-                          .available = fully_available(regions_, 0, size() - 1)});
+                          .available = fully_available(regions_, 0, size() - 1),
+                          .writable = fully_available(regions_, 0, size() - 1)});
     }
     return result;
+}
+
+MemoryWriteError LibretroMemory::write(uint32_t address, std::span<const uint8_t> bytes) {
+    // The frontend calls this on its main thread after retro_run() has returned, between frames.
+    const std::vector<MemoryRegionInfo> memory_regions = regions();
+    const MemoryWriteError validation =
+        validate_memory_write(address, bytes.size(), size(), memory_regions);
+    if (validation != MemoryWriteError::None) {
+        return validation;
+    }
+
+    uint32_t available = 0;
+    uint8_t* destination = rc_libretro_memory_find_avail(&regions_, address, &available);
+    if (!destination) {
+        return MemoryWriteError::Unavailable;
+    }
+    if (bytes.size() > available) {
+        return MemoryWriteError::BoundaryCrossing;
+    }
+
+    std::memmove(destination, bytes.data(), bytes.size());
+    return MemoryWriteError::None;
 }
 
 } // namespace cw

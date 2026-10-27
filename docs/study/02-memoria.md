@@ -6,7 +6,7 @@ watch list, code notes). É aqui que o trabalho no set começa.
 | Subetapa | Conteúdo | Status |
 |---|---|---|
 | 2.1 | Memória em endereços do RetroAchievements | ✅ |
-| 2.2 | Memory viewer e edição de valores | ⏳ |
+| 2.2 | Memory viewer e edição de valores | ✅ |
 | 2.3 | Busca de memória | ⏳ |
 | 2.4 | Watch list | ⏳ |
 | 2.5 | Code notes | ⏳ |
@@ -129,3 +129,63 @@ do mesmo jeito: a função estática usa o `s_active`.
 6. Por que, além do array de descritores, precisamos copiar as strings `addrspace`?
 7. Exercício: rode o programa com o jogo e veja, na janela Status, as 3 regiões. Depois edite
    `kKnownCores` em `libretro_memory.cpp` removendo o Beetle PSX: o que muda na janela, e por quê?
+
+---
+
+## 2.2 · Memory viewer e edição de valores
+
+### O que foi feito
+
+- A interface `MemoryWriter` foi adicionada separada de `MemoryReader` (`src/devtools/include/cw/devtools/memory.hpp`). A validação exige que todos os bytes estejam no espaço de endereços, disponíveis e dentro de uma única região gravável. Uma falha não altera memória.
+- `MemoryRegionInfo` agora informa `writable`. `BufferMemory` aceita regiões sintéticas, incluindo regiões somente leitura e indisponíveis, para testar recusas sem core ou jogo.
+- A lógica pura do viewer interpreta bits 0–7, nibble baixo/alto e valores de 8, 16, 24 e 32 bits em little- e big-endian. A codificação aplica os mesmos limites e preserva os outros bits ao editar um bit ou nibble.
+- `LibretroMemory` escreve apenas depois de validar a região RA e confirmar que `rc_libretro_memory_find_avail` retorna um bloco contíguo grande o suficiente. O viewer chama a escrita no loop principal depois de `retro_run()` retornar.
+- O menu **View → Memory Viewer** abre uma grade hex de 16 bytes por linha, com navegação por endereço e região. `ImGuiListClipper` limita a leitura às linhas visíveis; o painel de seleção mostra todas as interpretações, destaca mudanças entre snapshots e aceita edição hexadecimal por `InputText`.
+
+### Conceitos
+
+**Uma escrita inteira ou nenhuma.** A validação calcula o último endereço com 64 bits, procura uma região que contenha o intervalo completo e, só depois, copia os bytes. Assim, escrever `0xFFFF` a partir do último byte de uma região não modifica o primeiro byte da seguinte. A implementação libretro também respeita o limite do bloco que o rcheevos devolve.
+
+**Os tamanhos são os do rcheevos.** `rc_peek_value` obtém o valor base como little-endian; `rc_transform_memref_value` mascara o tamanho e, para 16/24/32 bits big-endian, inverte os bytes. Bit 0 é o bit menos significativo; nibble baixo ocupa os bits 0–3 e nibble alto, os bits 4–7. A visualização e a edição seguem essa mesma regra.
+
+**Bit e nibble são campos dentro de um byte.** A edição lê o byte atual, troca só a máscara escolhida e escreve o byte resultante. Por exemplo, editar o nibble baixo de `0xA5` para `2` produz `0xA2`, mantendo o nibble alto.
+
+**O viewer não percorre os 2 MiB a cada desenho.** A lista informa ao clipper quantas linhas existem; a memória é lida durante a renderização das linhas visíveis. Cada conjunto visível é comparado ao conjunto anterior, e só os endereços presentes nos dois snapshots com valor diferente recebem destaque. O painel também lê o endereço selecionado para preencher suas interpretações.
+
+**Entrada de texto e teclado do jogo.** O endereço e o valor usam `InputText`. O loop já consulta `io.WantTextInput` antes de atualizar o joypad, então as teclas digitadas nesses campos não são encaminhadas ao jogo.
+
+### Arquivos para ler
+
+1. `src/devtools/include/cw/devtools/memory.hpp` e `src/devtools/memory.cpp`: escrita, interpretações, codificação e comparação dos snapshots.
+2. `tests/test_memory.cpp`: tamanhos/endians conhecidos, ida e volta, preservação de bits, recusas e mudança entre snapshots.
+3. `src/frontend/libretro_memory.cpp`: tipos das regiões RA e o limite de bloco em `rc_libretro_memory_find_avail`.
+4. `tests/test_libretro_memory.cpp`: escrita refletida na RAM do core sintético com mapa PS1 e recusa na fronteira.
+5. `src/frontend/main.cpp`: janela, `ImGuiListClipper`, entrada de texto, edição e menu.
+6. `third_party/rcheevos/src/rcheevos/memref.c`, `third_party/rcheevos/include/rc_runtime_types.h` e `third_party/rcheevos/include/rc_consoles.h`: tamanhos, transformação endian e `RC_MEMORY_TYPE_READONLY`.
+7. `reference/RAIntegration/src/devkit/data/Memory.hh` e `reference/RAIntegration/src/ui/viewmodels/MemoryViewerViewModel.cpp`: comparação de tamanhos e do comportamento do viewer (referência de leitura; nenhum código foi copiado).
+
+### O que aprendemos com a referência
+
+- No rcheevos v12.5.0 compilado aqui, o `peek` de vários bytes entrega um inteiro little-endian; as variantes big-endian são uma transformação posterior. Não basta trocar a ordem dos bytes no desenho da grade: a conversão numérica também precisa corresponder.
+- `RC_MEMORY_TYPE_READONLY` é o tipo explícito de região somente leitura. A região só é marcada gravável se estiver completamente disponível e não tiver esse tipo. Para consoles desconhecidos, a memória plana só é gravável quando todos os bytes estão mapeados.
+- A RAIntegration confirma os nomes dos tamanhos e trata a edição por valores de memória. Nós usamos uma interface nossa e validação atômica, adequada aos testes com `BufferMemory` e sem dependência de SDL.
+
+### Verificação
+
+- `cmake -S . -B build` e `cmake --build build -j`: passaram sem warnings.
+- `ctest --test-dir build --output-on-failure`: passou.
+- Build e `ctest` separados com `-fsanitize=address,undefined`: passaram.
+- O executável foi iniciado com `SDL_VIDEODRIVER=offscreen`, Beetle PSX, BIOS e o jogo das notas; permaneceu no loop até ser interrompido. Esse smoke test sem janela interativa não permite confirmar cliques/edição visualmente; o roteiro manual está no rascunho do PR.
+
+### Problemas encontrados
+
+- Nenhum erro de build ou teste. A escrita no core sintético confirmou que o endereço RA aponta para a RAM original do core, não para uma cópia do viewer.
+
+### Para fixar
+
+1. Por que `MemoryWriter` é uma interface separada de `MemoryReader`?
+2. Quais duas fronteiras a escrita libretro valida antes do `memcpy`?
+3. Com os bytes `12 34 56`, qual valor de 24 bits aparece em little-endian e em big-endian?
+4. Se o byte é `0xA5`, que byte resulta ao trocar o nibble baixo para `2`? E o alto para `3`?
+5. O que deixa de ser comparável quando um endereço não estava na lista visível do snapshot anterior?
+6. Por que `ImGuiListClipper` importa para uma região de 2 MiB, mesmo que a grade mostre só 16 bytes por linha?
