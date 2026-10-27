@@ -9,7 +9,7 @@ watch list, code notes). É aqui que o trabalho no set começa.
 | 2.2 | Memory viewer e edição de valores | ✅ |
 | 2.3 | Busca de memória | ✅ |
 | 2.4 | Watch list | ✅ |
-| 2.5 | Code notes | ⏳ |
+| 2.5 | Code notes | ✅ |
 
 ---
 
@@ -420,3 +420,105 @@ unload/reload, os timestamps antigos são descartados sem remover os watches nem
 3. O que acontece com o destaque se a lista é atualizada vinte vezes sem o jogo avançar?
 4. Como o teste confirma que `core.unload()` não deixa a lista lendo um ponteiro antigo?
 5. Por que os watches sobrevivem ao unload do jogo, mas seus valores não?
+
+---
+
+## 2.5 · Code notes
+
+### O que foi feito
+
+- `cw::CodeNotes` (`src/devtools/include/cw/devtools/code_notes.hpp` e
+  `src/devtools/code_notes.cpp`) carrega e compara notas sem depender do SDL, do ImGui ou do core.
+  O arquivo nosso fica em `$XDG_DATA_HOME/cheevo-workbench/notes/<GameID>.json`, com
+  `format: "cheevo-workbench-code-notes"`, versão 1, `game_id` e uma lista de endereço hexadecimal
+  e texto livre UTF-8. Aspas, barras, quebras de linha e Unicode passam pelo JSON.
+- A gravação cria um temporário único ao lado do arquivo e o troca com `rename`. Arquivo ausente é
+  uma lista vazia. JSON local inválido é mostrado como erro e bloqueia gravações, para não apagar o
+  conteúdo que precisa ser recuperado.
+- A pasta `RACache` é opcional e fica em `ra-cache-path.txt` dentro da configuração XDG. A
+  biblioteca lê `RACache/Data/<GameID>-Notes.json`, preserva o `Address` hexadecimal com ou sem
+  `0x`, autor e nota, e ignora registros vazios como o parser do rcheevos. Não existe caminho de
+  escrita para esse arquivo; ausente significa sem notas de servidor e JSON inválido é reportado.
+- **View → Memory Viewer** edita a nota local do endereço selecionado e mostra, separadamente, a
+  nota do servidor como somente leitura. **Memory Search** e **Watch List** exibem uma coluna de
+  nota, preferindo a local quando as duas fontes têm o mesmo endereço.
+- **View → Code Notes** lista todas as notas com endereço, origem, filtro textual e clique para
+  abrir o endereço no viewer. A aba **To publish** lista só notas locais novas ou com texto
+  alterado; cada linha copia o texto para colar no RAIntegration. A ferramenta não faz upload.
+- As notas acompanham o game ID manual ligado ao hash, já mostrado na janela Status. Sem ID, as
+  janelas explicam que é preciso defini-lo ali; não há consulta ao servidor.
+
+### Conceitos
+
+**Cache de servidor não é arquivo de edição.** Em `RcClient.cpp`, `CacheCodeNotesResponse` grava a
+resposta de leitura em `RACache/Data/<GameID>-Notes.json`; `FileLocalStorage.cpp` associa o tipo
+`MemoryNotes` a esse nome. O arquivo pode ser refeito ao baixar as notas, então o workbench só o
+abre para leitura. As notas locais ficam em outro arquivo nosso.
+
+**Endereço hexadecimal é texto.** O cache usa objetos com `Address`, `User` e `Note`. Conferimos em
+`third_party/rcheevos/src/rapi/rc_api_editor.c` que o endereço passa por `strtoul(..., 16)`, então
+aceitamos tanto `0x001234` quanto `001234`. Nosso JSON próprio usa chaves minúsculas e guarda o
+`game_id` e a versão para não confundir arquivos de outro jogo ou formato.
+
+**Leitura inválida deve ser segura.** Cache corrompido não vira lista vazia silenciosamente, pois
+isso faria cada nota parecer nova. JSON local corrompido também não é substituído ao salvar; o
+usuário precisa recuperar ou corrigir o arquivo antes de continuar editando.
+
+**“Para publicar” compara, não envia.** Um endereço local sem nota no cache é novo; texto diferente
+é alterado; texto igual não aparece. A ausência de uma nota local não é uma ordem de remoção no
+servidor. Copiar uma nota é uma ação local de clipboard para colagem no RAIntegration.
+
+**Campo de texto captura o teclado.** O editor usa `InputTextMultiline`. O loop consulta
+`io.WantTextInput` antes de atualizar o joypad, então as teclas de edição não chegam ao jogo.
+
+### Arquivos para ler
+
+1. `src/devtools/include/cw/devtools/code_notes.hpp`: formato documentado e API independente da UI.
+2. `src/devtools/code_notes.cpp`: parser, caminhos, comparação, temporário e `rename`.
+3. `tests/test_code_notes.cpp`: JSON round-trip, caminhos, cache read-only, corrupção e comparação.
+4. `src/frontend/main.cpp`: ligação com game ID, viewer, busca, watch list e janela Code Notes.
+5. `src/frontend/game_ids.cpp`: origem do ID manual usado para escolher os arquivos.
+6. Referência (somente leitura): `reference/RAIntegration/src/devkit/context/impl/RcClient.cpp`,
+   `src/services/impl/FileLocalStorage.cpp`, `src/devkit/data/models/MemoryNotesModel.cpp` e
+   `third_party/rcheevos/src/rapi/rc_api_editor.c`.
+
+### O que aprendemos com a referência
+
+- `RcClient.cpp` grava uma fatia da resposta do servidor no cache local, enquanto
+  `FileLocalStorage.cpp` resolve o tipo `MemoryNotes` para `Data/<GameID>-Notes.json`.
+- `rc_api_process_fetch_code_notes_server_response` interpreta o endereço como texto hexadecimal
+  e ignora notas vazias, que significam exclusão no servidor. O workbench reproduz essa leitura
+  sem incluir ou chamar a parte de rede do rcheevos.
+- As notas que o autor edita no RAIntegration têm outro fluxo, junto aos assets locais. A escolha
+  aqui é manter o formato JSON próprio e deixar a cópia para o RAIntegration explícita.
+
+### Verificação
+
+- `cmake -S . -B build`, `cmake --build build -j` e `ctest --test-dir build --output-on-failure`:
+  passaram sem warnings; os 105 casos do doctest passaram.
+- `clang-format --dry-run --Werror` nos arquivos C++ alterados: passou.
+- Build separado em `/tmp/cheevo-issue13-asan` com ASan+UBSan e
+  `ctest --test-dir /tmp/cheevo-issue13-asan --output-on-failure`: passaram.
+- Smoke test offscreen com Beetle PSX, BIOS japonesa e o `.cue` indicado em 1.2: firmware
+  encontrado, mapa PS1 de 2.098.176 bytes, jogo carregado e 589 frames executados antes do timeout
+  controlado. O teste offscreen não permite conferir os cliques e a edição de notas; usar o roteiro
+  manual do rascunho do PR.
+
+### Problemas encontrados
+
+- O primeiro teste de cache revelou que os nomes dos campos do servidor usam maiúsculas (`Address`,
+  `User`, `Note`), ao contrário do formato nosso. O parser mantém os dois esquemas separados.
+- Não foi encontrado problema de compilação ou de testes depois dessa correção.
+- Limitação conhecida: notas do servidor podem incluir japonês, que a fonte padrão do ImGui não
+  desenha corretamente. A troca ou ampliação de fonte ficou fora deste passo.
+
+### Para fixar
+
+1. Por que o cache `-Notes.json` precisa continuar somente leitura?
+2. O que acontece quando o JSON local não pode ser interpretado? Por que não o salvamos como lista
+   vazia?
+3. Como a ferramenta decide se uma nota local é nova, alterada ou igual à nota do servidor?
+4. Uma nota presente no cache, mas ausente no arquivo local, entra em “To publish”? Por quê?
+5. Como confirmar que a janela Code Notes selecionou o arquivo correspondente ao jogo atual?
+6. Configure uma pasta `RACache` e abra o `.cue` usado em 1.2. No viewer, adicione uma nota em um
+   endereço, salve, troque de jogo e volte. O que muda ao selecionar outro game ID?

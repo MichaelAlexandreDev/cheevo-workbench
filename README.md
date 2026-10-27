@@ -51,7 +51,7 @@ On Arch Linux:
 sudo pacman -S --needed base-devel cmake ninja sdl3 mesa
 ```
 
-rcheevos, Dear ImGui, doctest and libretro-common are vendored as git submodules:
+rcheevos, Dear ImGui, nlohmann/json, doctest and libretro-common are vendored as git submodules:
 
 ```sh
 git clone --recursive <repo-url>          # or, in an existing clone:
