@@ -5,6 +5,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace cw {
@@ -17,9 +18,103 @@ struct MemoryRegionInfo {
     // True only if every address from start to end can be read; false when the emulator does
     // not expose the block, or only part of it.
     bool available = false;
+    // True only when writes to every address in the region are supported.
+    bool writable = false;
 
     friend bool operator==(const MemoryRegionInfo&, const MemoryRegionInfo&) = default;
 };
+
+class MemoryReader;
+
+enum class MemoryWriteError {
+    None,
+    EmptyWrite,
+    OutOfAddressSpace,
+    Unavailable,
+    ReadOnly,
+    BoundaryCrossing,
+};
+
+// Separate write capability: readers and achievement evaluation do not need mutation access.
+// Implementations must validate the complete range before changing any byte.
+class MemoryWriter {
+  public:
+    virtual ~MemoryWriter() = default;
+
+    virtual MemoryWriteError write(uint32_t address, std::span<const uint8_t> bytes) = 0;
+};
+
+// The range must fit in one available, writable MemoryRegionInfo and in the address space.
+MemoryWriteError validate_memory_write(uint32_t address, size_t byte_count, uint32_t address_space,
+                                       std::span<const MemoryRegionInfo> regions);
+const char* memory_write_error_message(MemoryWriteError error);
+
+enum class MemoryValueSize {
+    Bit0,
+    Bit1,
+    Bit2,
+    Bit3,
+    Bit4,
+    Bit5,
+    Bit6,
+    Bit7,
+    LowNibble,
+    HighNibble,
+    EightBit,
+    SixteenBit,
+    TwentyFourBit,
+    ThirtyTwoBit,
+};
+
+enum class ByteOrder { LittleEndian, BigEndian };
+
+unsigned memory_value_byte_count(MemoryValueSize size);
+uint32_t memory_value_max(MemoryValueSize size);
+std::optional<uint32_t> decode_memory_value(const MemoryReader& memory, uint32_t address,
+                                            MemoryValueSize size, ByteOrder order);
+
+enum class MemoryValueEncodeError { None, TooLarge, InvalidBuffer };
+
+// Encodes into an existing byte buffer. Bit and nibble sizes preserve the other bits in byte 0.
+MemoryValueEncodeError encode_memory_value(uint32_t value, MemoryValueSize size, ByteOrder order,
+                                           std::span<uint8_t> bytes);
+
+struct MemoryByteSnapshot {
+    uint32_t address = 0;
+    uint8_t value = 0;
+
+    friend bool operator==(const MemoryByteSnapshot&, const MemoryByteSnapshot&) = default;
+};
+
+// Remembers in which emulated frame each visible byte last changed, so a viewer can keep a
+// change highlighted for a while. Comparing only consecutive snapshots would light a byte that
+// changes once (a story flag, say) for a single 1/60 s frame. Time is the core's frame counter,
+// not the UI's: on a 144 Hz display, or while paused, highlights neither shrink nor vanish, and a
+// frame advance leaves exactly that frame's changes lit.
+class ByteChangeTracker {
+  public:
+    explicit ByteChangeTracker(uint64_t highlight_frames = 60) : window_(highlight_frames) {}
+
+    // Records the bytes visible after emulated frame `frame`. A byte that differs from the last
+    // time it was seen is marked as changed at `frame`. Bytes seen for the first time (scrolled
+    // into view) are only remembered, never marked.
+    void observe(std::span<const MemoryByteSnapshot> bytes, uint64_t frame);
+
+    // Frames since `address` last changed, if that was less than the highlight window ago.
+    std::optional<uint64_t> frames_since_change(uint32_t address, uint64_t frame) const;
+
+    uint64_t window() const { return window_; }
+    void clear();
+
+  private:
+    uint64_t window_;
+    std::unordered_map<uint32_t, uint8_t> last_value_;  // only the bytes of the last snapshot
+    std::unordered_map<uint32_t, uint64_t> changed_at_; // pruned once older than the window
+};
+
+// Returns addresses that have a different value in both visible snapshots.
+std::vector<uint32_t> changed_memory_bytes(std::span<const MemoryByteSnapshot> previous,
+                                           std::span<const MemoryByteSnapshot> current);
 
 // Read access to emulated memory through RetroAchievements addresses: the address space each
 // console has on retroachievements.org (PS1: 0x000000-0x2003FF), whatever the way the emulator
@@ -48,19 +143,21 @@ std::optional<uint32_t> read_le(const MemoryReader& memory, uint32_t address, un
 
 // A MemoryReader over a plain byte buffer, address 0 = first byte. Used as synthetic console
 // memory in tests and as the simplest possible implementation of the interface.
-class BufferMemory final : public MemoryReader {
+class BufferMemory final : public MemoryReader, public MemoryWriter {
   public:
     explicit BufferMemory(std::vector<uint8_t> bytes, std::string description = "Memory");
+    BufferMemory(std::vector<uint8_t> bytes, std::vector<MemoryRegionInfo> regions);
 
     uint32_t size() const override;
     size_t read(uint32_t address, std::span<uint8_t> out) const override;
     std::vector<MemoryRegionInfo> regions() const override;
+    MemoryWriteError write(uint32_t address, std::span<const uint8_t> bytes) override;
 
     std::vector<uint8_t>& bytes() { return bytes_; }
 
   private:
     std::vector<uint8_t> bytes_;
-    std::string description_;
+    std::vector<MemoryRegionInfo> regions_;
 };
 
 } // namespace cw
