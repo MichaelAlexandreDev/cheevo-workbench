@@ -6,6 +6,7 @@
 
 #include <libretro.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <set>
@@ -13,6 +14,8 @@
 #include <vector>
 
 namespace cw {
+
+class JoypadState;
 
 // Hosts one libretro core (.so): loads it with dlopen, answers its environment calls and
 // runs it frame by frame.
@@ -52,6 +55,8 @@ class LibretroCore {
     // The sink is not owned by the core. Samples from both libretro audio callbacks are buffered
     // during retro_run() and delivered in one write() call when that frame finishes.
     void set_audio_sink(AudioSink* sink);
+    // The state is not owned by the core; its lifetime must cover calls to retro_run().
+    void set_joypad_state(JoypadState* state);
 
     bool is_loaded() const { return handle_ != nullptr; }
     bool is_game_loaded() const { return game_loaded_; }
@@ -69,6 +74,8 @@ class LibretroCore {
     const VideoFrame& video_frame() const { return frame_; }
     unsigned last_frame_width() const { return frame_.width; }
     unsigned last_frame_height() const { return frame_.height; }
+    const uint8_t* system_ram_data() const;
+    size_t system_ram_size() const;
 
   private:
     // Entry points looked up in the .so. decltype keeps each signature identical to libretro.h.
@@ -134,6 +141,7 @@ class LibretroCore {
     VideoFrame frame_;
     bool reported_bad_frame_ = false; // log a rejected frame only once
     AudioSink* audio_sink_ = nullptr;
+    JoypadState* joypad_state_ = nullptr;
     std::vector<int16_t> audio_samples_;
     bool audio_buffer_failed_ = false;
     bool reported_audio_buffer_failure_ = false;

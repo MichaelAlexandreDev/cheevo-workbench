@@ -1,7 +1,9 @@
+#include "input_state.hpp"
 #include "libretro_core.hpp"
 
 #include <doctest/doctest.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -138,7 +140,7 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK_FALSE(core.system_info().need_fullpath);
 
     const auto& options = core.options().options();
-    REQUIRE(options.size() == 4);
+    REQUIRE(options.size() == 5);
     CHECK(options[0].key == "cw_test_pixel_format");
     CHECK(options[0].value == "0RGB1555");
     REQUIRE(options[0].values.size() == 3);
@@ -151,6 +153,8 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK(options[2].value == "batch");
     CHECK(options[3].key == "cw_test_sample_rate_change");
     CHECK(options[3].value == "disabled");
+    CHECK(options[4].key == "cw_test_input_mode");
+    CHECK(options[4].value == "individual");
 
     REQUIRE(core.load_game(content.path(), error));
     CHECK(core.is_game_loaded());
@@ -371,4 +375,65 @@ TEST_CASE("LibretroCore forwards SET_SYSTEM_AV_INFO sample-rate changes to the s
     REQUIRE(sink.sample_rates.size() == 2);
     CHECK(sink.sample_rates[0] == doctest::Approx(44100.0));
     CHECK(sink.sample_rates[1] == doctest::Approx(48000.0));
+}
+
+TEST_CASE("The synthetic core observes every default input mapping in both query modes") {
+    SyntheticContent content;
+    std::array<bool, SDL_SCANCODE_COUNT> keys{};
+    const auto verify_mode = [&](const char* mode) {
+        CAPTURE(mode);
+        cw::JoypadState joypad;
+        cw::LibretroCore core;
+        core.set_joypad_state(&joypad);
+        std::string error;
+        REQUIRE(core.load(test_core_path(), {}, error));
+        REQUIRE(core.set_option("cw_test_input_mode", mode));
+        REQUIRE(core.load_game(content.path(), error));
+        REQUIRE(core.system_ram_size() == 64U * 1024U);
+
+        const auto check_ram_mask = [&](uint16_t expected) {
+            core.run_frame();
+            const uint8_t* ram = core.system_ram_data();
+            REQUIRE(ram != nullptr);
+            CHECK(static_cast<uint16_t>(ram[4] | (static_cast<uint16_t>(ram[5]) << 8U)) ==
+                  expected);
+        };
+
+        for (const cw::KeyboardBinding binding : cw::keyboard_bindings()) {
+            CAPTURE(binding.key);
+            keys.fill(false);
+            keys[static_cast<size_t>(binding.key)] = true;
+            const uint16_t mask = cw::map_keyboard_state(keys);
+            joypad.set_source(cw::kKeyboardInputSource, mask);
+            check_ram_mask(static_cast<uint16_t>(1U << binding.joypad_id));
+        }
+
+        joypad.remove_source(cw::kKeyboardInputSource);
+        constexpr SDL_JoystickID kTestGamepadId = 42;
+        const uint64_t gamepad_source = cw::gamepad_input_source(kTestGamepadId);
+        for (const cw::GamepadBinding binding : cw::gamepad_bindings()) {
+            CAPTURE(binding.button);
+            cw::GamepadSnapshot snapshot;
+            snapshot.buttons[static_cast<size_t>(binding.button)] = true;
+            const uint16_t mask = cw::map_gamepad_state(snapshot);
+            joypad.set_source(gamepad_source, mask);
+            check_ram_mask(static_cast<uint16_t>(1U << binding.joypad_id));
+        }
+
+        for (const bool left_trigger : {true, false}) {
+            cw::GamepadSnapshot snapshot;
+            if (left_trigger) {
+                snapshot.left_trigger = 16384;
+            } else {
+                snapshot.right_trigger = 16384;
+            }
+            joypad.set_source(gamepad_source, cw::map_gamepad_state(snapshot));
+            const unsigned joypad_id =
+                left_trigger ? RETRO_DEVICE_ID_JOYPAD_L2 : RETRO_DEVICE_ID_JOYPAD_R2;
+            check_ram_mask(static_cast<uint16_t>(1U << joypad_id));
+        }
+    };
+
+    verify_mode("individual");
+    verify_mode("bitmask");
 }

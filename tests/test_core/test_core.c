@@ -9,6 +9,7 @@
 #define TEST_CORE_AUDIO_FRAMES 735U
 #define TEST_CORE_RAM_SIZE (64U * 1024U)
 #define TEST_CORE_FRAME_COUNT_OFFSET 0U
+/* The last RETRO_DEVICE_JOYPAD state is stored as a little-endian uint16_t in bytes 4 and 5. */
 #define TEST_CORE_INPUT_MASK_OFFSET 4U
 #define TEST_CORE_SERIALIZED_SIZE (sizeof(uint64_t) + TEST_CORE_RAM_SIZE)
 #define TEST_CORE_MAX_PITCH (TEST_CORE_WIDTH * 4U + 16U)
@@ -17,6 +18,7 @@
 #define TEST_CORE_RESIZE_KEY "cw_test_resize"
 #define TEST_CORE_AUDIO_MODE_KEY "cw_test_audio_mode"
 #define TEST_CORE_SAMPLE_RATE_KEY "cw_test_sample_rate_change"
+#define TEST_CORE_INPUT_MODE_KEY "cw_test_input_mode"
 /* With cw_test_resize enabled, frames from this one on are 32x16 with a 3:2 aspect ratio,
    announced through SET_GEOMETRY. */
 #define TEST_CORE_RESIZE_FRAME 3U
@@ -35,6 +37,8 @@ static bool can_dupe_frames;
 static bool resize_enabled;
 static bool single_sample_audio;
 static bool change_sample_rate;
+static bool input_bitmask_mode;
+static bool supports_input_bitmasks;
 static bool hw_render_accepted;
 static unsigned int frame_width = TEST_CORE_WIDTH;
 static unsigned int frame_height = TEST_CORE_HEIGHT;
@@ -111,6 +115,21 @@ static struct retro_core_option_v2_definition core_option_definitions[] = {
             },
         .default_value = "disabled",
     },
+    {
+        .key = TEST_CORE_INPUT_MODE_KEY,
+        .desc = "Input callback mode",
+        .desc_categorized = NULL,
+        .info = "Select individual joypad buttons or the libretro joypad bitmask query.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"individual", "individual"},
+                {"bitmask", "bitmask"},
+                {NULL, NULL},
+            },
+        .default_value = "individual",
+    },
     {0},
 };
 
@@ -124,6 +143,7 @@ static struct retro_variable legacy_variables[] = {
     {TEST_CORE_RESIZE_KEY, "Resize at frame 3; disabled|enabled"},
     {TEST_CORE_AUDIO_MODE_KEY, "Audio callback mode; batch|single"},
     {TEST_CORE_SAMPLE_RATE_KEY, "Change sample rate at frame 3; disabled|enabled"},
+    {TEST_CORE_INPUT_MODE_KEY, "Input callback mode; individual|bitmask"},
     {NULL, NULL},
 };
 
@@ -349,6 +369,13 @@ bool retro_load_game(const struct retro_game_info* game) {
         change_sample_rate = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &sample_rate) &&
                              sample_rate.value != NULL && strcmp(sample_rate.value, "enabled") == 0;
     }
+    {
+        struct retro_variable input_mode = {TEST_CORE_INPUT_MODE_KEY, NULL};
+        supports_input_bitmasks = environment_callback(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
+        input_bitmask_mode = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &input_mode) &&
+                             input_mode.value != NULL && strcmp(input_mode.value, "bitmask") == 0 &&
+                             supports_input_bitmasks;
+    }
 
     /* Ask for hardware rendering like a GL core would. A software-only front-end must refuse;
        if it accepted, this core would send RETRO_HW_FRAME_BUFFER_VALID instead of pixels and
@@ -388,7 +415,10 @@ void retro_run(void) {
     if (input_poll_callback != NULL)
         input_poll_callback();
 
-    if (input_state_callback != NULL) {
+    if (input_state_callback != NULL && input_bitmask_mode) {
+        input_mask =
+            (uint16_t)input_state_callback(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_MASK);
+    } else if (input_state_callback != NULL) {
         for (index = 0; index <= RETRO_DEVICE_ID_JOYPAD_R3; ++index) {
             if (input_state_callback(0, RETRO_DEVICE_JOYPAD, 0, (unsigned int)index) != 0)
                 input_mask |= (uint16_t)(1U << index);

@@ -1,5 +1,7 @@
 #include "libretro_core.hpp"
 
+#include "input_state.hpp"
+
 #include <SDL3/SDL_log.h>
 #include <dlfcn.h>
 
@@ -240,12 +242,33 @@ void LibretroCore::set_audio_sink(AudioSink* sink) {
     }
 }
 
+void LibretroCore::set_joypad_state(JoypadState* state) {
+    joypad_state_ = state;
+}
+
+const uint8_t* LibretroCore::system_ram_data() const {
+    if (!game_loaded_ || !api_.get_memory_data) {
+        return nullptr;
+    }
+    return static_cast<const uint8_t*>(api_.get_memory_data(RETRO_MEMORY_SYSTEM_RAM));
+}
+
+size_t LibretroCore::system_ram_size() const {
+    if (!game_loaded_ || !api_.get_memory_size) {
+        return 0;
+    }
+    return api_.get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
+}
+
 // --- Environment ------------------------------------------------------------------------------
 
 bool LibretroCore::environment(unsigned cmd, void* data) {
     switch (cmd) {
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
         static_cast<retro_log_callback*>(data)->log = &LibretroCore::on_log;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
         return true;
 
     // libretro.h: answering NULL means "no directory defined"; the core then picks its own.
@@ -456,8 +479,10 @@ size_t LibretroCore::on_audio_sample_batch(const int16_t* data, size_t frames) {
 
 void LibretroCore::on_input_poll() {}
 
-int16_t LibretroCore::on_input_state(unsigned, unsigned, unsigned, unsigned) {
-    return 0; // no buttons pressed until step 1.5
+int16_t LibretroCore::on_input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
+    return s_active && s_active->joypad_state_
+               ? s_active->joypad_state_->input_state(port, device, index, id)
+               : 0;
 }
 
 void LibretroCore::on_log(retro_log_level level, const char* fmt, ...) {
