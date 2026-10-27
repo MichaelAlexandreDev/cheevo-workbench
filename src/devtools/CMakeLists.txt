@@ -2,6 +2,7 @@
 # formats). It must not depend on SDL, OpenGL or the front-end, so it can be unit-tested with
 # synthetic memory buffers.
 add_library(cw_devtools STATIC
+    bookmarks.cpp
     code_notes.cpp
     file_checks.cpp
     game_hash.cpp

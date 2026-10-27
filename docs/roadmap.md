@@ -80,7 +80,7 @@ RAIntegration for upload.
 | Step | Scope | Depends on | Status |
 |---|---|---|---|
 | 5.1 | Code notes (from 2.5) shown in the achievement editor next to each address, and editable from there | 2.5, 4.3 | ⏳ |
-| 5.2 | Bookmarks: `RACache/Bookmarks/<GameID>-Bookmarks.json` (separate folder, see RAIntegration `FileLocalStorage.cpp`) | 2.4, 3.1 | ⏳ |
+| 5.2 | Bookmarks: `RACache/Bookmarks/<GameID>-Bookmarks.json` (separate folder, see RAIntegration `FileLocalStorage.cpp`) | 2.4, 3.1 | ✅ — advanced before 3.3 at the user's request |
 
 ## Milestone 6 — Rich Presence + leaderboards
 
