@@ -18,6 +18,10 @@
 #define TEST_CORE_RESIZE_KEY "cw_test_resize"
 #define TEST_CORE_AUDIO_MODE_KEY "cw_test_audio_mode"
 #define TEST_CORE_SAMPLE_RATE_KEY "cw_test_sample_rate_change"
+#define TEST_CORE_QUIRKS_KEY "cw_test_serialization_quirks"
+/* Announced with the quirks option: two real quirks plus a bit libretro does not define, which
+   the front-end must clear. */
+#define TEST_CORE_UNKNOWN_QUIRK ((uint64_t)1 << 40)
 #define TEST_CORE_INPUT_MODE_KEY "cw_test_input_mode"
 /* With cw_test_resize enabled, frames from this one on are 32x16 with a 3:2 aspect ratio,
    announced through SET_GEOMETRY. */
@@ -130,6 +134,21 @@ static struct retro_core_option_v2_definition core_option_definitions[] = {
             },
         .default_value = "individual",
     },
+    {
+        .key = TEST_CORE_QUIRKS_KEY,
+        .desc = "Announce serialization quirks",
+        .desc_categorized = NULL,
+        .info = "Announce CORE_VARIABLE_SIZE, SINGLE_SESSION and an unknown quirk bit at load.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"disabled", "disabled"},
+                {"enabled", "enabled"},
+                {NULL, NULL},
+            },
+        .default_value = "disabled",
+    },
     {0},
 };
 
@@ -143,6 +162,7 @@ static struct retro_variable legacy_variables[] = {
     {TEST_CORE_RESIZE_KEY, "Resize at frame 3; disabled|enabled"},
     {TEST_CORE_AUDIO_MODE_KEY, "Audio callback mode; batch|single"},
     {TEST_CORE_SAMPLE_RATE_KEY, "Change sample rate at frame 3; disabled|enabled"},
+    {TEST_CORE_QUIRKS_KEY, "Announce serialization quirks; disabled|enabled"},
     {TEST_CORE_INPUT_MODE_KEY, "Input callback mode; individual|bitmask"},
     {NULL, NULL},
 };
@@ -368,6 +388,16 @@ bool retro_load_game(const struct retro_game_info* game) {
         struct retro_variable sample_rate = {TEST_CORE_SAMPLE_RATE_KEY, NULL};
         change_sample_rate = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &sample_rate) &&
                              sample_rate.value != NULL && strcmp(sample_rate.value, "enabled") == 0;
+    }
+    {
+        /* libretro.h: quirks are announced in retro_init or retro_load_game (not both). */
+        struct retro_variable quirks_option = {TEST_CORE_QUIRKS_KEY, NULL};
+        if (environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &quirks_option) &&
+            quirks_option.value != NULL && strcmp(quirks_option.value, "enabled") == 0) {
+            uint64_t quirks = RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE |
+                              RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION | TEST_CORE_UNKNOWN_QUIRK;
+            (void)environment_callback(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS, &quirks);
+        }
     }
     {
         struct retro_variable input_mode = {TEST_CORE_INPUT_MODE_KEY, NULL};

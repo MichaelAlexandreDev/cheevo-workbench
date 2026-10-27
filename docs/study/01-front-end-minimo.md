@@ -11,7 +11,7 @@ save states).
 | 1.3 | Vídeo | ✅ |
 | 1.4 | Áudio e sincronia | ✅ |
 | 1.5 | Input | ✅ |
-| 1.6 | Save states | ⏳ |
+| 1.6 | Save states | ✅ |
 | 1.7 | Menu, abrir arquivos, pausar, avançar frame | ⏳ |
 
 ---
@@ -693,3 +693,99 @@ Com a janela sem foco, nenhuma fonte envia botões.
 5. Se o ImGui captura o teclado, o que acontece com o controle conectado? E com a janela sem foco?
 6. Exercício: mude temporariamente uma tecla para outro botão na tabela e ajuste o teste que garante
    que o core observa o bit resultante em ambos os modos de leitura.
+
+---
+
+## 1.6 · Save states
+
+### O que foi feito
+
+- **Contêiner `RASTATE`** (`src/frontend/save_state.*`, lógica pura): grava e lê o mesmo formato do
+  RALibretro: `"RASTATE"` + versão 1, depois blocos (`"MEM "` = dados do core, `"ACHV"` = progresso
+  das conquistas, a partir do passo 3.3; `"END "` fecha). Também lê states "crus" (só os dados do
+  core). Cada tamanho de bloco é conferido contra o tamanho do arquivo.
+- **`LibretroCore`**: `serialize_state` / `unserialize_state`, com o tamanho conferido **antes** de
+  entregar os dados ao core, e a resposta a `SET_SERIALIZATION_QUIRKS`.
+- **`SaveStates`** (`src/frontend/save_states.*`): 4 slots por jogo e core em
+  `~/.local/share/cheevo-workbench/states/`, nomeados como no RALibretro
+  (`<jogo>-<core>.state<N>`), com escrita atômica.
+- **Atalhos:** Shift+F1–F4 salva, F1–F4 carrega (os mesmos do RALibretro), com uma mensagem rápida
+  sobre o jogo.
+- **Testes:** os bytes exatos do arquivo, ida e volta, arquivos truncados/corrompidos, restauração
+  exata com o core de teste, slots, sessão única, quirks. 39 casos / 2763 verificações. Teste de
+  mutação com 4 bugs, todos pegos.
+- **Com o Beetle PSX e o seu jogo:** salvar no frame 300, avançar 120 frames e carregar devolve os
+  2 MB de RAM do PS1 idênticos, byte a byte. O arquivo tem ~3,7 MB.
+
+### Conceitos
+
+**O que é um save state.** É uma "foto" de *todo* o estado do console: RAM, registradores da CPU,
+GPU, som, drive de CD. O core sabe montar e restaurar essa foto (`retro_serialize` /
+`retro_unserialize`); o front-end só guarda os bytes. É diferente do save do jogo (memory card),
+que o próprio jogo grava.
+
+**Contêiner por blocos.** Em vez de gravar só os bytes do core, o arquivo tem "etiquetas" de 4
+letras com o tamanho de cada bloco. Assim dá para acrescentar coisas depois (o progresso das
+conquistas no 3.3) sem quebrar arquivos antigos: quem lê pula os blocos que não conhece.
+
+**Nunca confie no tamanho escrito no arquivo.** O tamanho de cada bloco vem do arquivo; se ele
+diz "4 GB" num arquivo de 20 bytes, ler isso é ler memória que não existe. A checagem é
+`size > file.size() - pos`, e **não** `pos + size > file.size()`: a segunda forma pode dar
+overflow (dar a volta) com tamanhos enormes e passar na checagem. (O leitor do RALibretro não faz
+essa checagem; o nosso teste de mutação mostrou o ASan acusando a leitura fora do buffer.)
+
+**Conferir antes de entregar ao core.** Um state de outro core ou de outra versão tem outro
+tamanho. Se o entregássemos ao core, ele poderia sobrescrever parte do estado antes de perceber o
+erro e deixar o jogo em andamento corrompido. Por isso o tamanho é conferido antes.
+
+**Escrita atômica.** Gravamos em `arquivo.tmp` e depois renomeamos para o nome final. O `rename`
+troca o arquivo de uma vez: se o programa cair no meio da gravação, o slot antigo continua intacto.
+
+**Quirks de serialização.** O core avisa particularidades dos states dele, e o front-end responde
+quais respeita (mantendo esses bits) e quais não (zerando):
+
+| Quirk | Significado | Nossa resposta |
+|---|---|---|
+| `INCOMPLETE` | o state não serve para netplay/regravação | ok, não fazemos isso |
+| `MUST_INITIALIZE` | o core precisa rodar um pouco antes de salvar | mensagem "ainda não está pronto" |
+| `CORE_VARIABLE_SIZE` | o tamanho pode mudar na sessão | consultamos o tamanho a cada save e afrouxamos a checagem; respondemos `FRONT_VARIABLE_SIZE` |
+| `SINGLE_SESSION` | só carrega na mesma execução | só carregamos states salvos nesta sessão |
+| `ENDIAN/PLATFORM_DEPENDENT` | não leva para outra máquina | os arquivos ficam nesta máquina |
+| bits desconhecidos | — | zerados: não prometemos o que não conhecemos |
+
+O Beetle PSX anuncia `CORE_VARIABLE_SIZE` (resposta: `0xc` = `CORE_VARIABLE_SIZE` +
+`FRONT_VARIABLE_SIZE`). Sem tratar essa quirk, a checagem rígida de tamanho poderia recusar states
+válidos dele.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/frontend/save_state.cpp`: o formato e as checagens (curto).
+2. `tests/test_save_state.cpp`: o primeiro teste mostra os bytes exatos de um arquivo.
+3. `src/frontend/libretro_core.cpp`: `SET_SERIALIZATION_QUIRKS`, `serialize_state`,
+   `unserialize_state`.
+4. `src/frontend/save_states.cpp`: slots, escrita atômica, sessão única.
+5. `src/frontend/main.cpp`: `handle_state_hotkeys` e `draw_notice`.
+6. Referência: `reference/RALibretro/src/States.cpp` (`saveState`, `loadRAState1`, `getStatePath`).
+
+### O que aprendemos com a referência
+
+- O formato `RASTATE` e os nomes dos blocos vêm do RALibretro; gravando igual, os states podem ser
+  usados lá também. (Não verifiquei o formato do RetroArch, que usa um nome parecido.)
+- O RALibretro também grava uma captura de tela (`SCRN`, PNG) dentro do state; deixamos de fora
+  por enquanto (é ignorada na leitura).
+- O leitor dele não confere os tamanhos dos blocos; o nosso confere.
+
+### Problemas encontrados
+
+- Os auxiliares de teste (conteúdo temporário, caminho do core de teste) estavam dentro de um
+  arquivo de teste; foram para `tests/test_support.hpp` para os testes novos usarem também.
+
+### Para fixar
+
+1. Qual a diferença entre um save state e o save do memory card?
+2. Por que `size > file.size() - pos` é mais seguro que `pos + size > file.size()`?
+3. O que aconteceria se entregássemos ao core um state com o tamanho errado?
+4. Por que gravar em `.tmp` e renomear, em vez de gravar direto no arquivo do slot?
+5. Por que zeramos os bits de quirk que não conhecemos?
+6. Exercício: no jogo, salve no slot 1 (Shift+F1), ande até outra sala, carregue (F1). Depois
+   feche o programa, abra de novo e carregue o slot 1: funciona? Por quê (dica: quirks do Beetle)?

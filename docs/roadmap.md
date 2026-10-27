@@ -18,7 +18,7 @@ Status legend: ✅ done · 🟡 in progress · ⏳ planned · 🔒 blocked
 | 1.3 | Video: software frames → GL texture in the dock's central area; 0RGB1555/XRGB8888/RGB565; pitch; dupe frames; geometry/aspect changes | 1.2 | ✅ |
 | 1.4 | Audio via SDL3 audio stream; pace frames from the core's fps/audio, not from vsync | 1.2 | ✅ |
 | 1.5 | Input: keyboard + gamepad → `RETRO_DEVICE_JOYPAD` (incl. `GET_INPUT_BITMASKS`), hot-plug, release on focus loss | 1.2 | ✅ |
-| 1.6 | Save states: serialize/unserialize to slots under the data dir, size checks, `SET_SERIALIZATION_QUIRKS`; hotkeys (F1–F4 style) | 1.2 | ⏳ |
+| 1.6 | Save states: serialize/unserialize to slots under the data dir, size checks, `SET_SERIALIZATION_QUIRKS`; hotkeys (F1–F4 style) | 1.2 | ✅ |
 | 1.7 | Menus: open core/content (SDL3 file dialog), recent files, pause/resume, reset, **frame advance**, close content; save/load state menu entries | 1.3–1.6 | ⏳ |
 
 **Unlocks for the set:** the game is playable inside the tool.

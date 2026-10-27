@@ -6,6 +6,7 @@
 #include "input_state.hpp"
 #include "libretro_core.hpp"
 #include "paths.hpp"
+#include "save_states.hpp"
 #include "sdl_audio_output.hpp"
 
 #include <SDL3/SDL.h>
@@ -104,6 +105,53 @@ std::string load_from_options(cw::LibretroCore& core, const LaunchOptions& optio
         return "Could not load game: " + error;
     }
     return {};
+}
+
+// Short message drawn over the game for a moment (e.g. "Saved slot 1"); also logged.
+struct Notice {
+    std::string text;
+    std::chrono::steady_clock::time_point until{};
+};
+
+void show_notice(Notice& notice, const std::string& text, bool ok) {
+    notice.text = text;
+    notice.until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    if (ok) {
+        SDL_Log("%s", text.c_str());
+    } else {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s", text.c_str());
+    }
+}
+
+void draw_notice(const Notice& notice, ImDrawList* draw_list, ImVec2 area_min, ImVec2 area_max) {
+    if (notice.text.empty() || std::chrono::steady_clock::now() > notice.until) {
+        return;
+    }
+    const ImVec2 pad(8.0f, 4.0f);
+    const ImVec2 size = ImGui::CalcTextSize(notice.text.c_str());
+    const ImVec2 pos(area_min.x + 12.0f, area_max.y - size.y - 2 * pad.y - 12.0f);
+    draw_list->AddRectFilled(pos, ImVec2(pos.x + size.x + 2 * pad.x, pos.y + size.y + 2 * pad.y),
+                             IM_COL32(0, 0, 0, 180), 4.0f);
+    draw_list->AddText(ImVec2(pos.x + pad.x, pos.y + pad.y), IM_COL32_WHITE, notice.text.c_str());
+}
+
+// Shift+F1..F4 saves slot 1..4, F1..F4 loads it (the same keys as RALibretro's defaults).
+// RouteGlobal: the keys work even while a tool window has focus.
+void handle_state_hotkeys(cw::LibretroCore& core, cw::SaveStates& states, Notice& notice) {
+    if (!core.is_game_loaded()) {
+        return;
+    }
+    for (int slot = 1; slot <= cw::SaveStates::kSlotCount; ++slot) {
+        const auto key = static_cast<ImGuiKey>(ImGuiKey_F1 + (slot - 1));
+        std::string message;
+        if (ImGui::Shortcut(ImGuiMod_Shift | key, ImGuiInputFlags_RouteGlobal)) {
+            const bool ok = states.save(core, slot, message);
+            show_notice(notice, message, ok);
+        } else if (ImGui::Shortcut(key, ImGuiInputFlags_RouteGlobal)) {
+            const bool ok = states.load(core, slot, message);
+            show_notice(notice, message, ok);
+        }
+    }
 }
 
 struct UiState {
@@ -283,6 +331,7 @@ void draw_status_window(const cw::LibretroCore& core, const std::string& load_er
     ImGui::Text("Gamepads: %s", connected_gamepads.c_str());
     ImGui::Text("Pressed: %s", pressed_buttons.c_str());
     ImGui::Text("UI: %.1f FPS", ImGui::GetIO().Framerate);
+    ImGui::TextDisabled("Save states: Shift+F1-F4 save, F1-F4 load");
     ImGui::End();
 }
 
@@ -358,6 +407,9 @@ int main(int argc, char** argv) {
     Gamepads gamepads;
     open_connected_gamepads(gamepads);
     cw::GameView game_view;
+    const std::filesystem::path data = cw::data_dir();
+    cw::SaveStates save_states(data.empty() ? std::filesystem::path{} : data / "states");
+    Notice notice;
     const std::string load_error = load_from_options(core, *launch);
     if (!load_error.empty()) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", load_error.c_str());
@@ -391,6 +443,7 @@ int main(int argc, char** argv) {
         const bool window_focused = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
         // Only typing into a text field (memory search, notes) takes the keyboard from the game.
         update_input(joypad_state, gamepads, window_focused, io.WantTextInput);
+        handle_state_hotkeys(core, save_states, notice);
 
         const auto now = cw::FramePacer::Clock::now();
         frame_pacer.set_core_fps(core.is_game_loaded() ? core.av_info().timing.fps : 0.0, now);
@@ -429,6 +482,7 @@ int main(int argc, char** argv) {
             const ImVec2 max(central->Pos.x + central->Size.x, central->Pos.y + central->Size.y);
             game_view.draw(ImGui::GetBackgroundDrawList(), central->Pos, max,
                            core.av_info().geometry.aspect_ratio);
+            draw_notice(notice, ImGui::GetBackgroundDrawList(), central->Pos, max);
         }
         draw_main_menu(ui);
         draw_status_window(core, load_error, audio_output, frame_pacer, joypad_state, gamepads);

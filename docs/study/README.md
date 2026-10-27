@@ -17,4 +17,4 @@ Cada subetapa segue o mesmo formato:
 | Arquivo | Conteúdo | Status |
 |---|---|---|
 | [00-planejamento.md](00-planejamento.md) | Por que o projeto existe, decisões de arquitetura | ✅ |
-| [01-front-end-minimo.md](01-front-end-minimo.md) | Etapa 1: janela, core libretro, vídeo, áudio, input, save states | ✅ 1.1–1.5 feitas |
+| [01-front-end-minimo.md](01-front-end-minimo.md) | Etapa 1: janela, core libretro, vídeo, áudio, input, save states | 🟡 1.1–1.6 feitas (falta 1.7) |

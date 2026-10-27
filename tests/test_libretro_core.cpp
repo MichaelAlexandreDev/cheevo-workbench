@@ -1,5 +1,6 @@
 #include "input_state.hpp"
 #include "libretro_core.hpp"
+#include "test_support.hpp"
 
 #include <doctest/doctest.h>
 
@@ -13,44 +14,10 @@
 #include <system_error>
 #include <vector>
 
-#ifndef CW_TEST_CORE_PATH
-#error "CW_TEST_CORE_PATH must name the built synthetic libretro core"
-#endif
-
 namespace {
 
-class SyntheticContent {
-  public:
-    SyntheticContent() {
-        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        path_ = std::filesystem::temp_directory_path() /
-                ("cw-test-core-" + std::to_string(stamp) + ".dat");
-
-        constexpr char bytes[] = "synthetic content fixture";
-        std::ofstream file(path_, std::ios::binary);
-        if (!file || !file.write(bytes, static_cast<std::streamsize>(sizeof(bytes) - 1))) {
-            throw std::runtime_error("Could not create temporary synthetic content");
-        }
-    }
-
-    ~SyntheticContent() {
-        std::error_code error;
-        std::filesystem::remove(path_, error);
-    }
-
-    SyntheticContent(const SyntheticContent&) = delete;
-    SyntheticContent& operator=(const SyntheticContent&) = delete;
-
-    const std::filesystem::path& path() const { return path_; }
-
-  private:
-    std::filesystem::path path_;
-};
-
-const std::filesystem::path& test_core_path() {
-    static const std::filesystem::path path(CW_TEST_CORE_PATH);
-    return path;
-}
+using cw_test::SyntheticContent;
+using cw_test::test_core_path;
 
 // The color the synthetic core draws at (x, y) on a given frame (see test_core.c).
 struct Rgb {
@@ -140,7 +107,7 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK_FALSE(core.system_info().need_fullpath);
 
     const auto& options = core.options().options();
-    REQUIRE(options.size() == 5);
+    REQUIRE(options.size() == 6);
     CHECK(options[0].key == "cw_test_pixel_format");
     CHECK(options[0].value == "0RGB1555");
     REQUIRE(options[0].values.size() == 3);
