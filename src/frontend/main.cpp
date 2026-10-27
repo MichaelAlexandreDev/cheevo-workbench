@@ -3,6 +3,7 @@
 
 #include "cw/devtools/game_hash.hpp"
 #include "cw/devtools/memory_search.hpp"
+#include "cw/devtools/watch_list.hpp"
 #include "frame_pacer.hpp"
 #include "game_ids.hpp"
 #include "game_view.hpp"
@@ -216,11 +217,22 @@ struct MemoryViewerState {
     cw::ByteOrder edit_order = cw::ByteOrder::LittleEndian;
     uint32_t edit_address = 0;
     bool edit_value_initialized = false;
+    std::optional<uint32_t> pending_jump_address;
     std::string message;
     bool message_is_error = false;
     cw::ByteChangeTracker changes; // highlights recent changes for ~1 s of emulated frames
     std::vector<cw::MemoryRegionInfo> previous_regions;
     std::string previous_game_path;
+};
+
+struct WatchListUiState {
+    bool open = false;
+    cw::MemoryValueSize size = cw::MemoryValueSize::EightBit;
+    cw::ByteOrder byte_order = cw::ByteOrder::LittleEndian;
+    char address_input[16] = "";
+    char label_input[64] = "";
+    std::string message;
+    bool message_is_error = false;
 };
 
 struct MemorySearchState {
@@ -703,6 +715,12 @@ constexpr bool has_byte_order(cw::MemoryValueSize size) {
            size == cw::MemoryValueSize::ThirtyTwoBit;
 }
 
+const char* memory_value_size_label(cw::MemoryValueSize size) {
+    const auto found = std::find_if(kMemoryValueSizes.begin(), kMemoryValueSizes.end(),
+                                    [size](const auto& entry) { return entry.first == size; });
+    return found == kMemoryValueSizes.end() ? "Unknown" : found->second;
+}
+
 bool parse_hex_value(std::string_view text, uint32_t& value) {
     if (text.starts_with("0x") || text.starts_with("0X")) {
         text.remove_prefix(2);
@@ -763,7 +781,8 @@ void draw_memory_values(const cw::MemoryReader& memory, uint32_t address) {
     }
 }
 
-void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer) {
+void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer,
+                              cw::WatchList& watch_list) {
     const cw::MemoryReader& memory = core.memory();
     if (!viewer.has_selection) {
         ImGui::TextDisabled("Select a byte in the memory grid.");
@@ -775,6 +794,16 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer)
     }
 
     ImGui::Text("Selected address: 0x%06X", viewer.selected_address);
+    ImGui::SameLine();
+    if (ImGui::Button("Watch")) {
+        if (watch_list.add(viewer.selected_address, viewer.edit_size, viewer.edit_order)) {
+            viewer.message = "Address added to Watch List.";
+            viewer.message_is_error = false;
+        } else {
+            viewer.message = "This address and interpretation are already watched.";
+            viewer.message_is_error = false;
+        }
+    }
     ImGui::Separator();
     draw_memory_values(memory, viewer.selected_address);
     ImGui::Separator();
@@ -872,7 +901,8 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer)
     }
 }
 
-void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
+void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer,
+                        cw::WatchList& watch_list) {
     if (!viewer.open) {
         return;
     }
@@ -900,6 +930,22 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
         viewer.changes.clear();
         ImGui::End();
         return;
+    }
+
+    if (viewer.pending_jump_address) {
+        const uint32_t address = *viewer.pending_jump_address;
+        const auto found = std::find_if(regions.begin(), regions.end(), [address](const auto& r) {
+            return r.start <= address && address <= r.end;
+        });
+        if (found != regions.end()) {
+            viewer.selected_region = static_cast<int>(std::distance(regions.begin(), found));
+            viewer.selected_address = address;
+            set_memory_address_input(viewer, address);
+            viewer.has_selection = true;
+            viewer.edit_value_initialized = false;
+            viewer.scroll_to_address = address;
+            viewer.pending_jump_address.reset();
+        }
     }
 
     const auto region_label = [&regions](size_t index) {
@@ -1069,7 +1115,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
     ImGui::EndChild();
     ImGui::SameLine();
     if (ImGui::BeginChild("SelectedValue", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-        draw_memory_value_editor(core, viewer);
+        draw_memory_value_editor(core, viewer, watch_list);
     }
     ImGui::EndChild();
     ImGui::End();
@@ -1077,6 +1123,10 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
 
 void jump_to_memory_address(MemoryViewerState& viewer, const cw::MemoryReader& memory,
                             uint32_t address) {
+    viewer.open = true;
+    viewer.pending_jump_address = address;
+    set_memory_address_input(viewer, address);
+
     const std::vector<cw::MemoryRegionInfo> regions = memory.regions();
     const auto found = std::find_if(regions.begin(), regions.end(), [address](const auto& region) {
         return region.start <= address && address <= region.end;
@@ -1085,18 +1135,18 @@ void jump_to_memory_address(MemoryViewerState& viewer, const cw::MemoryReader& m
         return;
     }
 
-    viewer.open = true;
     viewer.selected_region = static_cast<int>(std::distance(regions.begin(), found));
     viewer.selected_address = address;
     set_memory_address_input(viewer, address);
     viewer.has_selection = true;
     viewer.edit_value_initialized = false;
     viewer.scroll_to_address = address;
+    viewer.pending_jump_address.reset();
     viewer.message.clear();
 }
 
 void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchState& state,
-                        MemoryViewerState& viewer) {
+                        MemoryViewerState& viewer, cw::WatchList& watch_list) {
     if (!state.open) {
         return;
     }
@@ -1356,7 +1406,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
     if (state.search.active()) {
         if (state.search.candidate_count() == 0) {
             ImGui::TextDisabled("No candidates remain. Undo a filter or start a new search.");
-        } else if (ImGui::BeginTable("MemorySearchResults", 4,
+        } else if (ImGui::BeginTable("MemorySearchResults", 5,
                                      ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                          ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
                                      ImVec2(0.0f, 0.0f))) {
@@ -1364,6 +1414,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             ImGui::TableSetupColumn("Current");
             ImGui::TableSetupColumn("Previous");
             ImGui::TableSetupColumn("First snapshot");
+            ImGui::TableSetupColumn("Watch", ImGuiTableColumnFlags_WidthFixed, 64.0f);
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
 
@@ -1388,8 +1439,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
                     } else {
                         std::snprintf(address, sizeof(address), "0x%06X", result->address);
                     }
-                    if (ImGui::Selectable(address, false, ImGuiSelectableFlags_SpanAllColumns) &&
-                        result->current) {
+                    if (ImGui::Selectable(address) && result->current) {
                         jump_to_memory_address(viewer, memory, result->address);
                     }
                     ImGui::TableSetColumnIndex(1);
@@ -1402,6 +1452,26 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
                     ImGui::Text("0x%X", result->previous);
                     ImGui::TableSetColumnIndex(3);
                     ImGui::Text("0x%X", result->initial);
+                    ImGui::TableSetColumnIndex(4);
+                    if (ImGui::SmallButton("Watch")) {
+                        cw::MemoryValueSize watch_size = state.size;
+                        cw::ByteOrder watch_order = state.byte_order;
+                        if (result->bit_index) {
+                            watch_size = static_cast<cw::MemoryValueSize>(
+                                static_cast<unsigned>(cw::MemoryValueSize::Bit0) +
+                                *result->bit_index);
+                            watch_order = cw::ByteOrder::LittleEndian;
+                        } else if (!has_byte_order(watch_size)) {
+                            watch_order = cw::ByteOrder::LittleEndian;
+                        }
+                        if (watch_list.add(result->address, watch_size, watch_order)) {
+                            state.message = "Address added to Watch List.";
+                            state.message_is_error = false;
+                        } else {
+                            state.message = "This address and interpretation are already watched.";
+                            state.message_is_error = false;
+                        }
+                    }
                     ImGui::PopID();
                 }
             }
@@ -1412,10 +1482,200 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
     ImGui::End();
 }
 
+void draw_watch_list(cw::WatchList& watch_list, WatchListUiState& state, MemoryViewerState& viewer,
+                     const cw::MemoryReader& memory, uint64_t frame) {
+    if (!state.open) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(900.0f, 460.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Watch List", &state.open)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::SetNextItemWidth(150.0f);
+    const bool submitted = ImGui::InputText(
+        "Address (hex)", state.address_input, sizeof(state.address_input),
+        ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SameLine();
+    const char* selected_size = memory_value_size_label(state.size);
+    if (ImGui::BeginCombo("Size", selected_size)) {
+        for (const auto& [size, label] : kMemoryValueSizes) {
+            const bool selected = size == state.size;
+            if (ImGui::Selectable(label, selected)) {
+                state.size = size;
+                if (!has_byte_order(size)) {
+                    state.byte_order = cw::ByteOrder::LittleEndian;
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (has_byte_order(state.size)) {
+        ImGui::SameLine();
+        const char* order_label =
+            state.byte_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
+        if (ImGui::BeginCombo("Byte order", order_label)) {
+            for (const auto& [order, label] :
+                 {std::pair{cw::ByteOrder::LittleEndian, "Little-endian"},
+                  std::pair{cw::ByteOrder::BigEndian, "Big-endian"}}) {
+                const bool selected = order == state.byte_order;
+                if (ImGui::Selectable(label, selected)) {
+                    state.byte_order = order;
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+    ImGui::SetNextItemWidth(240.0f);
+    ImGui::InputText("Label (optional)", state.label_input, sizeof(state.label_input));
+    ImGui::SameLine();
+    if (ImGui::Button("Add") || submitted) {
+        uint32_t address = 0;
+        if (!parse_hex_value(state.address_input, address)) {
+            state.message = "Enter a valid hexadecimal address.";
+            state.message_is_error = true;
+        } else {
+            const cw::ByteOrder byte_order =
+                has_byte_order(state.size) ? state.byte_order : cw::ByteOrder::LittleEndian;
+            if (watch_list.add(address, state.size, byte_order, state.label_input)) {
+                state.message = "Address added to the Watch List.";
+                state.message_is_error = false;
+                state.address_input[0] = '\0';
+                state.label_input[0] = '\0';
+            } else {
+                state.message = "This address and interpretation are already watched.";
+                state.message_is_error = false;
+            }
+        }
+    }
+
+    if (!state.message.empty()) {
+        const ImVec4 color = state.message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+                                                    : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::TextColored(color, "%s", state.message.c_str());
+    }
+
+    if (watch_list.size() == 0) {
+        ImGui::TextDisabled("No watched addresses yet.");
+    } else if (ImGui::BeginTable("WatchListItems", 8,
+                                 ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                     ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                                 ImVec2(0.0f, 0.0f))) {
+        ImGui::TableSetupColumn("Order", ImGuiTableColumnFlags_WidthFixed, 88.0f);
+        ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 112.0f);
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Current (hex)", ImGuiTableColumnFlags_WidthFixed, 112.0f);
+        ImGui::TableSetupColumn("Current (decimal)", ImGuiTableColumnFlags_WidthFixed, 132.0f);
+        ImGui::TableSetupColumn("Previous", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Label");
+        ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, 76.0f);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+
+        std::optional<std::pair<size_t, size_t>> move_request;
+        std::optional<size_t> remove_request;
+        const auto& items = watch_list.items();
+        for (size_t i = 0; i < items.size(); ++i) {
+            const cw::MemoryWatchItem& item = items[i];
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::TableNextRow();
+            if (const auto age = watch_list.frames_since_change(i, frame); age) {
+                const float fade = 1.0f - static_cast<float>(*age) /
+                                              static_cast<float>(watch_list.highlight_frames());
+                const int alpha = static_cast<int>(45.0f + 105.0f * fade);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(175, 108, 20, alpha));
+            }
+            ImGui::TableSetColumnIndex(0);
+            if (i == 0) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::SmallButton("Up") && i > 0) {
+                move_request = std::pair{i, i - 1};
+            }
+            if (i == 0) {
+                ImGui::EndDisabled();
+            }
+            ImGui::SameLine();
+            if (i + 1 == items.size()) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::SmallButton("Down") && i + 1 < items.size()) {
+                move_request = std::pair{i, i + 1};
+            }
+            if (i + 1 == items.size()) {
+                ImGui::EndDisabled();
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            char address[24];
+            std::snprintf(address, sizeof(address), "0x%06X", item.address);
+            if (ImGui::Selectable(address)) {
+                jump_to_memory_address(viewer, memory, item.address);
+            }
+            ImGui::TableSetColumnIndex(2);
+            std::string interpretation = memory_value_size_label(item.size);
+            if (has_byte_order(item.size)) {
+                interpretation += item.byte_order == cw::ByteOrder::LittleEndian ? " LE" : " BE";
+            }
+            ImGui::TextUnformatted(interpretation.c_str());
+
+            ImGui::TableSetColumnIndex(3);
+            if (item.current_value) {
+                ImGui::Text("0x%X", *item.current_value);
+            } else {
+                ImGui::TextDisabled("Unavailable");
+            }
+            ImGui::TableSetColumnIndex(4);
+            if (item.current_value) {
+                ImGui::Text("%u", *item.current_value);
+            } else {
+                ImGui::TextDisabled("Unavailable");
+            }
+            ImGui::TableSetColumnIndex(5);
+            if (item.previous_value) {
+                ImGui::Text("0x%X", *item.previous_value);
+            } else {
+                ImGui::TextDisabled("--");
+            }
+            ImGui::TableSetColumnIndex(6);
+            if (item.label.empty()) {
+                ImGui::TextDisabled("--");
+            } else {
+                ImGui::TextUnformatted(item.label.c_str());
+            }
+            ImGui::TableSetColumnIndex(7);
+            if (ImGui::SmallButton("Remove")) {
+                remove_request = i;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+
+        if (move_request) {
+            watch_list.move(move_request->first, move_request->second);
+        }
+        if (remove_request) {
+            watch_list.remove(*remove_request);
+        }
+    }
+
+    ImGui::End();
+}
+
 void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     cw::SaveStates& save_states, cw::RecentFiles& recent, cw::GameView& game_view,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config,
-                    MemoryViewerState& memory_viewer, MemorySearchState& memory_search) {
+                    MemoryViewerState& memory_viewer, MemorySearchState& memory_search,
+                    WatchListUiState& watch_list) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -1501,6 +1761,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
     if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Memory Viewer", nullptr, &memory_viewer.open);
         ImGui::MenuItem("Memory Search", nullptr, &memory_search.open);
+        ImGui::MenuItem("Watch List", nullptr, &watch_list.open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
         ImGui::EndMenu();
     }
@@ -1725,6 +1986,8 @@ int main(int argc, char** argv) {
     UiState ui;
     MemoryViewerState memory_viewer;
     MemorySearchState memory_search;
+    WatchListUiState watch_list_ui;
+    cw::WatchList watch_list;
     ui.system_dir = launch->system_dir;
     const std::string load_error = load_from_options(core, *launch);
     ui.status_message = load_error;
@@ -1741,6 +2004,7 @@ int main(int argc, char** argv) {
 
     DialogQueue& dialogs = dialog_queue();
     cw::FramePacer frame_pacer;
+    uint64_t watch_session_generation = ui.game_session_generation;
     while (!ui.quit) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -1756,6 +2020,10 @@ int main(int argc, char** argv) {
             }
         }
         handle_dialog_results(ui, dialogs, notice, core, game_view, recent);
+        if (watch_session_generation != ui.game_session_generation) {
+            watch_list.clear_highlights();
+            watch_session_generation = ui.game_session_generation;
+        }
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
             SDL_Delay(10);
             continue;
@@ -1806,6 +2074,7 @@ int main(int argc, char** argv) {
             SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "Core measured %.2f FPS",
                          frame_pacer.measured_fps());
         }
+        watch_list.update(core.memory(), core.frame_count());
 
         // Passthru keeps the central area of the dock see-through. The game is drawn there on
         // the background draw list, i.e. behind every ImGui window, so docked tool windows
@@ -1822,9 +2091,11 @@ int main(int argc, char** argv) {
             draw_notice(notice, background, central->Pos, max);
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
-                       memory_viewer, memory_search);
-        draw_memory_viewer(core, memory_viewer);
-        draw_memory_search(ui, core, memory_search, memory_viewer);
+                       memory_viewer, memory_search, watch_list_ui);
+        draw_memory_viewer(core, memory_viewer, watch_list);
+        draw_memory_search(ui, core, memory_search, memory_viewer, watch_list);
+        draw_watch_list(watch_list, watch_list_ui, memory_viewer, core.memory(),
+                        core.frame_count());
         update_game_identity(ui, core, game_ids);
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);

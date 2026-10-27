@@ -5,6 +5,7 @@ add_library(cw_devtools STATIC
     file_checks.cpp
     game_hash.cpp
     memory.cpp
-    memory_search.cpp)
+    memory_search.cpp
+    watch_list.cpp)
 target_include_directories(cw_devtools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(cw_devtools PUBLIC rcheevos PRIVATE cw_warnings)

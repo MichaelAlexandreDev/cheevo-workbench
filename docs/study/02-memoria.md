@@ -8,7 +8,7 @@ watch list, code notes). É aqui que o trabalho no set começa.
 | 2.1 | Memória em endereços do RetroAchievements | ✅ |
 | 2.2 | Memory viewer e edição de valores | ✅ |
 | 2.3 | Busca de memória | ✅ |
-| 2.4 | Watch list | ⏳ |
+| 2.4 | Watch list | ✅ |
 | 2.5 | Code notes | ⏳ |
 
 ---
@@ -336,3 +336,87 @@ carregado novamente com o mesmo mapa de memória.
 5. Por que trocar só o byte order exige uma nova busca, mesmo que a faixa continue igual?
 6. Rode a sequência da sala A/B com o jogo pausado e avanço de quadro. Em que momento `Previous`
    é atualizado e em que momento `First` permanece igual?
+
+---
+
+## 2.4 · Watch list
+
+### O que foi feito
+
+- `WatchList` (`src/devtools/include/cw/devtools/watch_list.hpp` e
+  `src/devtools/watch_list.cpp`) guarda endereço, tamanho, byte order e rótulo opcional. A chave de
+  duplicata é endereço + tamanho + ordem; a lista também permite remover e reordenar itens.
+- A cada atualização, `WatchList::update` usa `decode_memory_value`, a mesma interpretação do
+  viewer e da busca. Cada item guarda o valor atual, o anterior e o frame emulado da última mudança.
+  Se a leitura falha, o atual fica indisponível; um valor antigo nunca é apresentado como atual.
+- **View → Watch List** mostra endereço clicável, interpretação, valor hexadecimal e decimal,
+  anterior, rótulo, destaque temporário e ações para subir, descer e remover. A janela permite
+  adicionar um endereço diretamente; o viewer e cada resultado da busca também têm um botão
+  **Watch**. Resultados de busca por bit preservam o bit selecionado.
+- O loop atualiza a lista uma vez depois dos frames rodados, na thread principal. O destaque dura
+  até 60 frames emulados: pausado, não envelhece; ao descarregar o jogo, os itens permanecem e os
+  valores passam a indisponíveis. A lista não é gravada em arquivo; persistência fica para os
+  bookmarks do passo 5.2.
+- Os testes usam `BufferMemory` para tamanhos, ordens, duplicatas, reordenação, remoção, falhas de
+  leitura e retorno da memória. O core sintético também expõe um contador de 32 bits no mapa PS1;
+  o teste acompanha os frames e confirma que o item fica indisponível após `core.unload()`.
+
+### Conceitos
+
+**Um watch é uma interpretação, não só um endereço.** O mesmo endereço pode ser observado como
+8 bits, 16 bits little-endian ou 16 bits big-endian. Por isso a duplicata só é recusada quando
+endereço, tamanho e byte order coincidem. Bits e nibbles também usam o decoder compartilhado.
+
+**Atual indisponível não é o mesmo que zero.** `current_value` é opcional. Um endereço sem memória,
+fora do buffer ou numa região não legível mostra “Unavailable”; não reutiliza o último valor como
+se a leitura tivesse dado certo. O anterior conserva a última observação válida para comparar
+quando a memória volta.
+
+**O relógio do destaque é o do jogo.** A lista compara o estado entre atualizações, mas registra o
+frame de emulação em que encontrou a mudança. Chamadas repetidas enquanto pausado continuam no
+mesmo frame, então o destaque congela. Ao trocar de sessão ou quando o contador volta a zero após
+unload/reload, os timestamps antigos são descartados sem remover os watches nem os valores lidos.
+
+### Arquivos para ler
+
+1. `src/devtools/include/cw/devtools/watch_list.hpp` e `src/devtools/watch_list.cpp`: modelo puro,
+   atualização e destaque por frame.
+2. `tests/test_watch_list.cpp`: tamanhos/endians, sequência de frames, pausa, indisponibilidade,
+   recuperação, duplicatas, ordenação e remoção.
+3. `tests/test_libretro_memory.cpp` e `tests/test_core/test_core.c`: contador de frames na memória
+   mapeada como PS1 e leitura segura depois do unload.
+4. `src/frontend/main.cpp`: menu, janela, ligação com viewer/busca e atualização após `retro_run`.
+5. `reference/RAIntegration/src/ui/viewmodels/MemoryWatchListViewModel.cpp` e
+   `MemoryWatchViewModel.cpp` (somente leitura; nenhum código foi copiado).
+
+### O que aprendemos com a referência
+
+- A RAIntegration atualiza seus view models durante o frame e também reage a escritas em memória.
+  Aqui, a lista é um modelo pequeno e independente da UI: lê os itens uma vez por passagem do loop,
+  depois dos frames do core, usando `MemoryReader` e `decode_memory_value`.
+- Este passo não lê nem escreve bookmarks da RAIntegration. A lista fica apenas na sessão do
+  programa; o formato compatível será tratado no passo 5.2.
+
+### Verificação
+
+- `cmake -S . -B build`, `cmake --build build -j` e `ctest --test-dir build --output-on-failure`:
+  passaram sem warnings; 97 casos e 6.312 asserções.
+- Build separado com ASan+UBSan e
+  `ctest --test-dir /tmp/cheevo-issue12-asan --output-on-failure`: passaram.
+- Smoke test offscreen com Beetle PSX, BIOS e o `.cue` das notas: o core encontrou a BIOS, montou
+  o mapa PS1 de 2.098.176 bytes, carregou o jogo e rodou 229 frames antes do encerramento
+  controlado por timeout. O backend offscreen não permite conferir visualmente cliques, entrada de
+  texto ou cores do destaque; essa parte fica para o roteiro manual.
+
+### Problemas encontrados
+
+- A primeira compilação apontou inicialização parcial dos campos opcionais do item. Eles foram
+  inicializados explicitamente; a compilação seguinte passou sem warnings.
+
+### Para fixar
+
+1. Por que endereço + tamanho + byte order identificam um item, em vez de apenas o endereço?
+2. Quando a memória desaparece, por que o valor atual fica vazio enquanto o anterior é mantido?
+3. O que acontece com o destaque se a lista é atualizada vinte vezes sem o jogo avançar?
+4. Como o teste confirma que `core.unload()` não deixa a lista lendo um ponteiro antigo?
+5. Por que os watches sobrevivem ao unload do jogo, mas seus valores não?

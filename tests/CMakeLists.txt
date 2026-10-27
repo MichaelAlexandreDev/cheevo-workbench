@@ -10,6 +10,7 @@ add_executable(cw_tests
     test_libretro_memory.cpp
     test_memory.cpp
     test_memory_search.cpp
+    test_watch_list.cpp
     test_input_state.cpp
     test_file_checks.cpp
     test_frame_pacer.cpp
