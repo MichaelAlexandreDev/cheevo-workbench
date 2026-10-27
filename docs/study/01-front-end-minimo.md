@@ -10,7 +10,7 @@ save states).
 | 1.2b | Core de teste sintético (testes sem ROM) | ✅ |
 | 1.3 | Vídeo | ✅ |
 | 1.4 | Áudio e sincronia | ✅ |
-| 1.5 | Input | ⏳ |
+| 1.5 | Input | ✅ |
 | 1.6 | Save states | ⏳ |
 | 1.7 | Menu, abrir arquivos, pausar, avançar frame | ⏳ |
 
@@ -594,3 +594,102 @@ normal. No modo de áudio, o tamanho máximo do lote e a fila limitada dão o me
    mostra para o modo de pacing?
 5. Por que o pacer descarta frames vencidos depois de uma travada longa em vez de tentar alcançá-los?
 6. Exercício: ligue `cw_test_audio_mode=single` e compare o vetor capturado ao caminho em lote.
+
+## 1.5 · Input de teclado e controle
+
+### O que foi feito
+
+- `JoypadState` combina por OR as máscaras de 16 botões de fontes independentes. Remover uma
+  fonte libera só aquele controle; perder o foco limpa todas as fontes.
+- Funções puras traduzem o snapshot de teclas SDL e o snapshot de botões/eixos SDL Gamepad para o
+  layout libretro. O loop lê o estado atual a cada volta, sem manter estado próprio baseado em
+  eventos de tecla.
+- O core recebe `RETRO_DEVICE_JOYPAD` na porta 0 e o front-end confirma suporte a
+  `GET_INPUT_BITMASKS`. O core sintético testa cada ligação no modo de consulta individual e no
+  modo de máscara, lendo os bits guardados na RAM sintética.
+- Controles são enumerados ao iniciar, abertos ao conectar e fechados ao desconectar. O estado de
+  teclado não chega ao core enquanto a janela não está focada ou o ImGui captura o teclado. A
+  janela Status lista controles e botões ativos.
+
+### Conceitos
+
+**RetroPad e máscara.** `RETRO_DEVICE_ID_JOYPAD_B` até `R3` são IDs 0–15. Uma consulta normal
+retorna 0 ou 1 para um ID. Se o front-end responde `true` a
+`RETRO_ENVIRONMENT_GET_INPUT_BITMASKS`, o core pode consultar `RETRO_DEVICE_ID_JOYPAD_MASK` e
+recebe todos os 16 estados nos bits correspondentes. O callback retorna `int16_t`, então o bit
+R3 (bit 15) ocupa o bit alto mesmo que a representação apareça como número negativo. O parâmetro
+de dados de `GET_INPUT_BITMASKS` é ignorado; o core sintético verifica a capacidade pelo valor
+booleano retornado pelo callback e passa `NULL` como dado.
+
+**Fontes e OR.** Teclado e cada controle têm IDs próprios e contribuem com uma máscara. A união
+por OR permite, por exemplo, segurar Start no teclado enquanto o direcional vem do controle. A
+remoção do dispositivo apaga sua fonte sem soltar as outras; perda de foco apaga todas.
+
+**Estado atual, não bordas.** `SDL_GetKeyboardState`, `SDL_GetGamepadButton` e
+`SDL_GetGamepadAxis` consultados após processar eventos refletem o estado corrente. Isso evita
+guardar uma tecla como pressionada quando algum caminho de liberação não é recebido. Eventos de
+teclado não atualizam o estado do jogo; eventos de conexão/desconexão e foco controlam o ciclo de
+vida das fontes.
+
+**Layout físico padronizado.** SDL nomeia os quatro botões frontais pela posição: `SOUTH`, `EAST`,
+`WEST`, `NORTH`. Eles mapeiam para libretro B, A, Y, X, respectivamente, igual ao padrão do
+RetroArch; num controle PlayStation isso corresponde a Cross, Circle, Square e Triangle.
+Gatilhos SDL vão de 0 a 32767; L2/R2 ativam acima de aproximadamente metade do curso.
+
+**Captura do ImGui.** `WantCaptureKeyboard` indica que o teclado deve atender a interface (por
+exemplo, um campo de texto). O controle continua sendo lido enquanto o ImGui captura o teclado.
+Com a janela sem foco, nenhuma fonte envia botões.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/frontend/input_state.hpp` e `src/frontend/input_state.cpp`: contratos, tabela padrão e
+   lógica pura de combinação/mapeamento.
+2. `src/frontend/libretro_core.hpp` e `src/frontend/libretro_core.cpp`: ponteiro não dono,
+   callback de input, negociação de bitmask e acessor de RAM usado pelos testes.
+3. `src/frontend/main.cpp`: enumeração e hot-plug SDL, leitura por volta, captura do teclado e
+   Status.
+4. `tests/test_input_state.cpp` e `tests/test_libretro_core.cpp`: mapeamentos unitários, fontes e
+   observação dos bits pelo core sintético nos dois modos.
+5. `tests/test_core/test_core.c`: opção de consulta individual/máscara e gravação do input nos
+   offsets 4–5 da RAM.
+6. API: `third_party/libretro-common/include/libretro.h`, definições de joypad IDs, máscara e
+   `GET_INPUT_BITMASKS`.
+7. Referência: `reference/RALibretro/src/components/Input.cpp` (somente comparação de desenho;
+   nenhum código foi copiado).
+
+### O que aprendemos com a referência
+
+- `Input.cpp` do RALibretro acompanha controles conectados e consulta estados de botões/eixos para
+  alimentar os dispositivos libretro. Este front-end mantém a primeira versão menor: um único
+  RetroPad lógico formado por teclado e controles somados, sem seleção de porta ou remapeamento.
+- A consulta por máscara é anunciada pelo ambiente do front-end; um core deve continuar preparado
+  para consultar cada botão quando esse recurso não está disponível. O core sintético cobre ambos
+  os caminhos.
+
+### Problemas encontrados
+
+- O sandbox não fornece um controle físico para validar hot-plug manual. A abertura, remoção e
+  reconexão são cobertas pela lógica de fontes em testes sem hardware; o caminho SDL foi compilado e
+  o app real foi iniciado com o core Beetle PSX.
+- A porta 0 é a única suportada nesta etapa. Consultas de outras portas, dispositivos, índices e
+  IDs retornam 0, conforme o escopo do roadmap.
+
+- **Teclado "morto" depois de clicar numa janela (achado na revisão do Claude).** Desde o 1.1 a
+  navegação do ImGui por teclado (`ImGuiConfigFlags_NavEnableKeyboard`) estava ligada. Com ela, o
+  ImGui marca `io.WantCaptureKeyboard = true` sempre que *qualquer* janela dele tem foco
+  (`third_party/imgui/imgui.cpp:5829`), e o jogo deixava de receber o teclado depois de um clique
+  na janela Status (e as setas também moveriam a interface). Os testes não pegavam isso: a função
+  testada estava certa; o problema era a combinação com essa opção do ImGui. Correção: desligar a
+  navegação por teclado e bloquear o teclado do jogo só com `io.WantTextInput` (quando você digita
+  num campo de texto). Lição: testes de unidade não substituem usar o programa de verdade.
+
+### Para fixar
+
+1. Que máscara hexadecimal representa B e Start pressionados ao mesmo tempo? E que valor devolve a
+   consulta individual de cada um?
+2. Por que desconectar uma fonte não deve limpar o estado do teclado e dos outros controles?
+3. Qual negociação permite ao core pedir os 16 botões numa chamada? Qual ID ele usa nessa consulta?
+4. O gatilho em exatamente 50% ativa L2/R2 neste mapeamento? Qual condição é usada?
+5. Se o ImGui captura o teclado, o que acontece com o controle conectado? E com a janela sem foco?
+6. Exercício: mude temporariamente uma tecla para outro botão na tabela e ajuste o teste que garante
+   que o core observa o bit resultante em ambos os modos de leitura.

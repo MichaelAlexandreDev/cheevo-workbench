@@ -65,6 +65,23 @@ ctest --test-dir build --output-on-failure
 
 Settings and window layout are stored in `~/.config/cheevo-workbench/`.
 
+## Default controls
+
+All inputs drive player 1's RetroPad (libretro's virtual controller); on PS1, B/A/Y/X are
+Cross/Circle/Square/Triangle.
+
+| RetroPad | Keyboard | Gamepad (SDL standard layout) |
+|---|---|---|
+| D-pad | Arrow keys | D-pad |
+| B / A / Y / X | Z / X / A / S | South / East / West / North |
+| L / R | Q / W | Shoulders |
+| L2 / R2 | E / R | Triggers (past ~50%) |
+| L3 / R3 | 1 / 2 | Stick clicks |
+| Start / Select | Enter / Right Shift | Start / Back |
+
+Typing into a text field of the tool does not reach the game. Without a working audio server the
+app may wait at startup; `SDL_AUDIO_DRIVER=dummy` runs it without sound.
+
 ## Non-goals and rules
 
 - No ROMs, BIOS files or copyrighted game data in this repository.

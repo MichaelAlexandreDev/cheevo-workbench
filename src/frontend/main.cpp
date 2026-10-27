@@ -3,6 +3,7 @@
 
 #include "frame_pacer.hpp"
 #include "game_view.hpp"
+#include "input_state.hpp"
 #include "libretro_core.hpp"
 #include "paths.hpp"
 #include "sdl_audio_output.hpp"
@@ -16,11 +17,14 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace {
 
@@ -108,6 +112,109 @@ struct UiState {
     bool paused = false; // Pause controls are added in step 1.7.
 };
 
+struct OpenGamepad {
+    SDL_Gamepad* handle = nullptr;
+    std::string name;
+};
+
+using Gamepads = std::unordered_map<SDL_JoystickID, OpenGamepad>;
+
+void open_gamepad(SDL_JoystickID id, Gamepads& gamepads) {
+    if (gamepads.contains(id) || !SDL_IsGamepad(id)) {
+        return;
+    }
+    SDL_Gamepad* handle = SDL_OpenGamepad(id);
+    if (!handle) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Could not open gamepad %d: %s", id, SDL_GetError());
+        return;
+    }
+    const char* name = SDL_GetGamepadName(handle);
+    gamepads.emplace(id, OpenGamepad{handle, name ? name : "Unknown gamepad"});
+    SDL_Log("Opened gamepad %s (id %d)", name ? name : "Unknown gamepad", id);
+}
+
+void close_gamepad(SDL_JoystickID id, Gamepads& gamepads, cw::JoypadState& input) {
+    input.remove_source(cw::gamepad_input_source(id));
+    const auto found = gamepads.find(id);
+    if (found == gamepads.end()) {
+        return;
+    }
+    SDL_CloseGamepad(found->second.handle);
+    SDL_Log("Closed gamepad %s (id %d)", found->second.name.c_str(), id);
+    gamepads.erase(found);
+}
+
+void open_connected_gamepads(Gamepads& gamepads) {
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    if (!ids && count > 0) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Could not enumerate gamepads: %s", SDL_GetError());
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        open_gamepad(ids[i], gamepads);
+    }
+    SDL_free(ids);
+}
+
+void update_input(cw::JoypadState& input, const Gamepads& gamepads, bool window_focused,
+                  bool imgui_wants_keyboard) {
+    if (!window_focused) {
+        input.release_all();
+        return;
+    }
+
+    if (cw::keyboard_input_allowed(window_focused, imgui_wants_keyboard)) {
+        int key_count = 0;
+        const bool* keys = SDL_GetKeyboardState(&key_count);
+        uint16_t keyboard_mask = 0;
+        if (keys && key_count > 0) {
+            keyboard_mask =
+                cw::map_keyboard_state(std::span<const bool>(keys, static_cast<size_t>(key_count)));
+        }
+        input.set_source(cw::kKeyboardInputSource, keyboard_mask);
+    } else {
+        input.remove_source(cw::kKeyboardInputSource);
+    }
+
+    for (const auto& [id, gamepad] : gamepads) {
+        cw::GamepadSnapshot snapshot;
+        for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button) {
+            snapshot.buttons[static_cast<size_t>(button)] =
+                SDL_GetGamepadButton(gamepad.handle, static_cast<SDL_GamepadButton>(button));
+        }
+        snapshot.left_trigger = SDL_GetGamepadAxis(gamepad.handle, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+        snapshot.right_trigger = SDL_GetGamepadAxis(gamepad.handle, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        input.set_source(cw::gamepad_input_source(id), cw::map_gamepad_state(snapshot));
+    }
+}
+
+std::string pressed_button_names(uint16_t mask) {
+    std::string names;
+    for (unsigned id = 0; id < 16; ++id) {
+        if ((mask & static_cast<uint16_t>(1U << id)) == 0) {
+            continue;
+        }
+        if (!names.empty()) {
+            names += ", ";
+        }
+        names += cw::joypad_button_name(id);
+    }
+    return names.empty() ? "none" : names;
+}
+
+std::string gamepad_names(const Gamepads& gamepads) {
+    std::string names;
+    for (const auto& [id, gamepad] : gamepads) {
+        (void)id;
+        if (!names.empty()) {
+            names += ", ";
+        }
+        names += gamepad.name;
+    }
+    return names.empty() ? "none" : names;
+}
+
 void draw_main_menu(UiState& ui) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
@@ -129,7 +236,8 @@ void draw_main_menu(UiState& ui) {
 }
 
 void draw_status_window(const cw::LibretroCore& core, const std::string& load_error,
-                        cw::SdlAudioOutput& audio, const cw::FramePacer& pacer) {
+                        cw::SdlAudioOutput& audio, const cw::FramePacer& pacer,
+                        const cw::JoypadState& input, const Gamepads& gamepads) {
     ImGui::Begin("Status");
     ImGui::Text("cheevo-workbench %s", CW_VERSION);
     ImGui::Separator();
@@ -170,6 +278,10 @@ void draw_status_window(const cw::LibretroCore& core, const std::string& load_er
     ImGui::Text("Audio queue: %.1f ms", audio.queued_seconds() * 1000.0);
     ImGui::Text("Frame pacing: %s",
                 pacer.mode() == cw::FramePacer::Mode::Audio ? "audio" : "clock");
+    const std::string connected_gamepads = gamepad_names(gamepads);
+    const std::string pressed_buttons = pressed_button_names(input.buttons());
+    ImGui::Text("Gamepads: %s", connected_gamepads.c_str());
+    ImGui::Text("Pressed: %s", pressed_buttons.c_str());
     ImGui::Text("UI: %.1f FPS", ImGui::GetIO().Framerate);
     ImGui::End();
 }
@@ -218,7 +330,10 @@ int main(int argc, char** argv) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
+    // No ImGuiConfigFlags_NavEnableKeyboard: with keyboard navigation on, ImGui claims the
+    // keyboard (WantCaptureKeyboard) whenever any of its windows has focus, so the game would
+    // stop receiving keys after a click on a tool window, and the arrows would move the UI.
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     // Window layout is saved next to the rest of the config instead of the working directory;
     // with no usable config directory, it is simply not saved. Must outlive the ImGui context.
     const std::filesystem::path config = cw::config_dir();
@@ -238,6 +353,10 @@ int main(int argc, char** argv) {
     // Loaded after the GL context exists: hardware-rendered cores will need it.
     cw::LibretroCore core;
     core.set_audio_sink(&audio_output);
+    cw::JoypadState joypad_state;
+    core.set_joypad_state(&joypad_state);
+    Gamepads gamepads;
+    open_connected_gamepads(gamepads);
     cw::GameView game_view;
     const std::string load_error = load_from_options(core, *launch);
     if (!load_error.empty()) {
@@ -252,12 +371,26 @@ int main(int argc, char** argv) {
             ImGui_ImplSDL3_ProcessEvent(&event);
             if (event.type == SDL_EVENT_QUIT) {
                 ui.quit = true;
+            } else if (event.type == SDL_EVENT_GAMEPAD_ADDED) {
+                open_gamepad(event.gdevice.which, gamepads);
+            } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED) {
+                close_gamepad(event.gdevice.which, gamepads, joypad_state);
+            } else if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+                joypad_state.release_all();
             }
         }
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
             SDL_Delay(10);
             continue;
         }
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+
+        const bool window_focused = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+        // Only typing into a text field (memory search, notes) takes the keyboard from the game.
+        update_input(joypad_state, gamepads, window_focused, io.WantTextInput);
 
         const auto now = cw::FramePacer::Clock::now();
         frame_pacer.set_core_fps(core.is_game_loaded() ? core.av_info().timing.fps : 0.0, now);
@@ -287,10 +420,6 @@ int main(int argc, char** argv) {
                          frame_pacer.measured_fps());
         }
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL3_NewFrame();
-        ImGui::NewFrame();
-
         // Passthru keeps the central area of the dock see-through. The game is drawn there on
         // the background draw list, i.e. behind every ImGui window, so docked tool windows
         // around it never cover the image.
@@ -302,7 +431,7 @@ int main(int argc, char** argv) {
                            core.av_info().geometry.aspect_ratio);
         }
         draw_main_menu(ui);
-        draw_status_window(core, load_error, audio_output, frame_pacer);
+        draw_status_window(core, load_error, audio_output, frame_pacer, joypad_state, gamepads);
         if (ui.show_imgui_demo) {
             ImGui::ShowDemoWindow(&ui.show_imgui_demo);
         }
@@ -317,6 +446,10 @@ int main(int argc, char** argv) {
     }
 
     core.unload(); // before the GL context goes away
+    for (const auto& [id, gamepad] : gamepads) {
+        (void)id;
+        SDL_CloseGamepad(gamepad.handle);
+    }
     audio_output.shutdown();
     game_view.release();
     ImGui_ImplOpenGL3_Shutdown();
