@@ -131,9 +131,17 @@ std::optional<uint32_t> decode_memory_value(const MemoryReader& memory, uint32_t
     if (byte_count == 0) {
         return std::nullopt;
     }
-
     std::array<uint8_t, 4> bytes{};
     if (memory.read(address, std::span(bytes.data(), byte_count)) != byte_count) {
+        return std::nullopt;
+    }
+    return decode_memory_bytes(std::span(bytes.data(), byte_count), size, order);
+}
+
+std::optional<uint32_t> decode_memory_bytes(std::span<const uint8_t> bytes, MemoryValueSize size,
+                                            ByteOrder order) {
+    const unsigned byte_count = memory_value_byte_count(size);
+    if (byte_count == 0 || bytes.size() != byte_count) {
         return std::nullopt;
     }
 

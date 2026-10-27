@@ -7,7 +7,7 @@ watch list, code notes). É aqui que o trabalho no set começa.
 |---|---|---|
 | 2.1 | Memória em endereços do RetroAchievements | ✅ |
 | 2.2 | Memory viewer e edição de valores | ✅ |
-| 2.3 | Busca de memória | ⏳ |
+| 2.3 | Busca de memória | ✅ |
 | 2.4 | Watch list | ⏳ |
 | 2.5 | Code notes | ⏳ |
 
@@ -203,3 +203,136 @@ do mesmo jeito: a função estática usa o `s_active`.
 4. Se o byte é `0xA5`, que byte resulta ao trocar o nibble baixo para `2`? E o alto para `3`?
 5. O que deixa de ser comparável quando um endereço não estava na lista visível do snapshot anterior?
 6. Por que `ImGuiListClipper` importa para uma região de 2 MiB, mesmo que a grade mostre só 16 bytes por linha?
+
+---
+
+## 2.3 · Busca de memória
+
+### O que foi feito
+
+- `MemorySearch` (`src/devtools/include/cw/devtools/memory_search.hpp` e
+  `src/devtools/memory_search.cpp`) implementa snapshots e filtros sem SDL, ImGui ou libretro. A
+  busca inicial percorre o intervalo escolhido e só guarda candidatos cujos bytes estão legíveis e
+  cabem inteiros no intervalo.
+- Cada candidato é um endereço interpretado com um tamanho e byte order selecionados. O modo
+  **All bits (0–7)** cria um candidato por par endereço/bit, ou 16.777.216 candidatos para 2 MiB.
+  A leitura usa `decode_memory_value`, a mesma função do viewer, então bit 0–7, nibble baixo/alto e
+  valores de 8/16/24/32 bits têm a mesma interpretação nas duas janelas. A opção de alinhamento
+  limita endereços de 16 bits a múltiplos de 2 e endereços de 32 bits a múltiplos de 4.
+- O filtro compara o valor vivo com o snapshot anterior, o primeiro snapshot ou um número digitado,
+  usando `=`, `!=`, `<`, `>`, `<=` ou `>=`. Os candidatos que continuam passam a guardar também a
+  foto atual como referência anterior. Os quatro filtros mais recentes podem ser desfeitos.
+- O bitmap de candidatos usa um bit por candidato; os snapshots guardam cada valor com o menor
+  número de bits possível. Isso representa também os 16 milhões de candidatos de **All bits** sem
+  um objeto por linha. Um índice de posições permite pedir as linhas visíveis diretamente. A
+  memória extra do desfazer fica limitada a quatro estados.
+- **View → Memory Search** permite escolher `All` ou uma região, tamanho, byte order e alinhamento,
+  iniciar uma busca e filtrar. A tabela virtualizada mostra endereço, valor atual, snapshot anterior
+  e primeira foto. Clicar num endereço abre o viewer no mesmo endereço e região.
+- A janela lê e filtra no loop principal, depois de `retro_run()` e antes de desenhar. Ela continua
+  disponível com o jogo pausado (P); o avanço de um frame (N) atualiza a memória antes do próximo
+  filtro.
+
+### Método de busca: um exemplo
+
+Para localizar uma variável que identifica a sala atual:
+
+1. Pause na sala A com **P** e clique em **New Search** para guardar a primeira foto.
+2. Vá à sala B e filtre com `!=` / **Previous snapshot**. Restam os endereços que mudaram.
+3. Ainda na sala B, pause ou avance quadros até a memória estabilizar. Filtre com `=` /
+   **Previous snapshot**; os valores que continuam mudando saem da lista.
+4. Volte à sala A e filtre com `=` / **First snapshot**. O teste sintético reproduz essa sequência
+   e termina com um único endereço.
+5. Clique nesse endereço para inspecioná-lo no viewer. Repita com outras transições se ainda houver
+   mais de um candidato.
+
+O valor **atual** da tabela é lido ao desenhar cada linha. **Previous snapshot** e **First snapshot**
+são valores guardados pela última busca/filtro e pela busca inicial, respectivamente.
+
+### Conceitos
+
+**Um candidato tem o tamanho escolhido.** Para uma busca de 8 bits, cada endereço do intervalo pode
+ser candidato. Para 16/24/32 bits, cada endereço inicial também é considerado, exceto se o valor
+ultrapassar o fim do intervalo, a leitura encontrar bytes indisponíveis ou o alinhamento opcional o
+excluir. Endereços de vários bytes podem se sobrepor, como no viewer. Em **All bits**, cada byte
+gera oito candidatos separados, do Bit 0 ao Bit 7; a tabela os identifica com um sufixo como
+`0x000123.Bit5`.
+
+**As três referências respondem perguntas diferentes.** Comparar com o snapshot anterior encontra
+o que mudou desde o último filtro. Comparar com o primeiro snapshot encontra valores que voltaram
+ao estado inicial. Comparar com um valor digitado busca um número conhecido. O filtro atualiza a
+referência anterior dos sobreviventes; o primeiro snapshot nunca muda.
+
+**Bitmap, valores compactados e índice de linhas.** O bitmap ocupa um bit por endereço candidato.
+Valores de bit são compactados em um bit, nibbles em quatro, e tamanhos maiores em 8/16/24/32 bits.
+O índice de postos permite que a tabela encontre, por exemplo, o candidato de número 1.000.000 sem
+recontar todos os anteriores. Assim a busca pode reter milhões de endereços sem criar um objeto C++
+por linha.
+
+**Desfazer preserva a busca como estava.** Cada filtro guarda o bitmap e o snapshot anterior antes
+de alterar os resultados. A fila mantém no máximo quatro desses estados, para que o consumo de
+memória não cresça a cada refinamento.
+
+**A interpretação não pode ficar obsoleta.** Mudar tamanho, byte order, alinhamento ou intervalo
+descarta os resultados. Trocar de sessão também invalida a busca, mesmo se o mesmo jogo for
+carregado novamente com o mesmo mapa de memória.
+
+### Arquivos para ler
+
+1. `src/devtools/include/cw/devtools/memory_search.hpp` e `src/devtools/memory_search.cpp`: estados,
+   bitmap, snapshots compactos, filtros e desfazer.
+2. `tests/test_memory_search.cpp`: operadores, tamanhos, byte orders, intervalos, alinhamento,
+   referências, sequência das salas e invalidação.
+3. `tests/test_libretro_memory.cpp`: uma busca cobrindo o mapa PS1 parcial do core sintético.
+4. `src/frontend/main.cpp`: janela **Memory Search**, clipper da tabela e navegação para o viewer.
+5. `src/devtools/include/cw/devtools/memory.hpp` e `src/devtools/memory.cpp`:
+   `decode_memory_value`, usado também pelo viewer.
+6. `reference/RAIntegration/src/services/Search/SearchImpl.cpp`,
+   `SearchImpl_4bit.hh`, `SearchImpl_16bit_be.hh`, `SearchImpl_24bit.hh` e
+   `reference/RAIntegration/src/ui/viewmodels/MemorySearchViewModel.cpp` (referência somente de
+   leitura; nenhum código foi copiado).
+
+### O que aprendemos com a referência
+
+- A RAIntegration aplica filtros sobre blocos de memória capturados e guarda resultados de busca
+  separados; a implementação daqui é menor, mas segue as mesmas interpretações de valor e
+  comparação. A referência também confirma que os nibbles baixo e alto podem ser resultados
+  distintos e que o 16-bit big-endian lê os bytes na ordem numérica correta.
+- O 24-bit lê exatamente os três bytes do tamanho selecionado. Usar `decode_memory_value` evita
+  que a busca trate valores de 24 bits ou byte order de forma diferente do viewer.
+
+### Verificação
+
+- `cmake -S . -B build`, `cmake --build build -j` e `ctest --test-dir build --output-on-failure`:
+  passaram sem warnings; 78 casos e 6.147 asserções.
+- Build Release e `ctest` Release: passaram. Build com ASan+UBSan e `ctest` sanitizado: passaram.
+- Em Release, mediana de três execuções: filtro de 8 bits sobre 2.097.152 candidatos em **85,1 ms**;
+  um filtro **All bits** sobre 16.777.216 candidatos em **677,8 ms**. O tempo cobre o filtro, não
+  a criação inicial do snapshot.
+- A lógica rodou com o core sintético e o mapa `ps1_partial`; foram encontrados exatamente os
+  1.048.576 bytes legíveis, sem candidatos na parte indisponível.
+- O smoke test offscreen carregou o Beetle PSX e o `.cue`, montou o mapa de memória PS1 e rodou
+  583 frames até o timeout. O log do core avisou que faltava `scph5500.bin`; não encontrei um BIOS
+  PS1 nos diretórios padrão verificados (`~/.local/share/cheevo-workbench/system`,
+  `~/.config/retroarch/system`, `~/.local/share/retroarch/system` ou `/usr/share/libretro/system`).
+  Portanto, o carregamento do core/conteúdo foi verificado, mas ainda falta confirmar o jogo em
+  execução e a interação visual com a busca; o roteiro manual está no rascunho do PR.
+
+### Problemas encontrados
+
+- Um teste de alinhamento 32-bit esperava um endereço cujo valor terminava depois do fim do
+  intervalo. Corrigi a fixture para separar claramente alinhamento de limite; a implementação
+  excluiu corretamente aquele endereço.
+- O rascunho indicado em `/tmp/cheevo-pr-issue-11.md` não estava presente no ambiente; recriei-o
+  com a descrição, decisões, verificações e o roteiro manual.
+
+### Para fixar
+
+1. Qual pergunta responde `Previous snapshot` que `First snapshot` não responde?
+2. Por que um valor de 32 bits no último endereço do intervalo não pode ser candidato?
+3. Como o bitmap e o índice permitem representar e listar milhões de candidatos sem um objeto por
+   endereço?
+4. O que o desfazer restaura além da lista de endereços?
+5. Por que trocar só o byte order exige uma nova busca, mesmo que a faixa continue igual?
+6. Rode a sequência da sala A/B com o jogo pausado e avanço de quadro. Em que momento `Previous`
+   é atualizado e em que momento `First` permanece igual?
