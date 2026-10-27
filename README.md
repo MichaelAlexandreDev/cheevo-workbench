@@ -79,6 +79,9 @@ Cross/Circle/Square/Triangle.
 | L3 / R3 | 1 / 2 | Stick clicks |
 | Start / Select | Enter / Right Shift | Start / Back |
 
+Save states: **Shift+F1–F4** saves slot 1–4, **F1–F4** loads it. States are stored in
+`~/.local/share/cheevo-workbench/states/` in RALibretro's `RASTATE` format.
+
 Typing into a text field of the tool does not reach the game. Without a working audio server the
 app may wait at startup; `SDL_AUDIO_DRIVER=dummy` runs it without sound.
 

@@ -206,6 +206,7 @@ void LibretroCore::unload() {
     reported_unsupported_.clear();
     pixel_format_ = RETRO_PIXEL_FORMAT_0RGB1555;
     av_info_ = {};
+    serialization_quirks_ = 0;
     clear_frame();
 }
 
@@ -246,6 +247,51 @@ void LibretroCore::set_joypad_state(JoypadState* state) {
     joypad_state_ = state;
 }
 
+bool LibretroCore::serialize_state(std::vector<uint8_t>& out, std::string& error) {
+    if (!game_loaded_) {
+        error = "No game loaded";
+        return false;
+    }
+    const bool must_initialize = serialization_quirks_ & RETRO_SERIALIZATION_QUIRK_MUST_INITIALIZE;
+    const size_t size = api_.serialize_size();
+    if (size == 0) {
+        error = must_initialize ? "The core is not ready to save yet; try again in a moment"
+                                : "This core does not support save states";
+        return false;
+    }
+    out.assign(size, 0);
+    if (!api_.serialize(out.data(), size)) {
+        error = must_initialize ? "The core is not ready to save yet; try again in a moment"
+                                : "The core failed to save its state";
+        return false;
+    }
+    return true;
+}
+
+bool LibretroCore::unserialize_state(std::span<const uint8_t> data, std::string& error) {
+    if (!game_loaded_) {
+        error = "No game loaded";
+        return false;
+    }
+    const size_t expected = api_.serialize_size();
+    const bool variable_size = serialization_quirks_ & RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE;
+    if (data.empty() || (!variable_size && data.size() != expected)) {
+        error = "The state has " + std::to_string(data.size()) + " bytes, but this core expects " +
+                std::to_string(expected) + " (saved by another core or core version?)";
+        return false;
+    }
+    if (!api_.unserialize(data.data(), data.size())) {
+        error = "The core rejected the state";
+        return false;
+    }
+    // Audio produced before the load belongs to the old timeline.
+    audio_samples_.clear();
+    if (audio_sink_) {
+        audio_sink_->clear();
+    }
+    return true;
+}
+
 const uint8_t* LibretroCore::system_ram_data() const {
     if (!game_loaded_ || !api_.get_memory_data) {
         return nullptr;
@@ -270,6 +316,28 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
 
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
         return true;
+
+    case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
+        // libretro.h: the front-end keeps the flags it supports and clears the others.
+        // - INCOMPLETE: only matters for netplay/rerecording, which we do not do.
+        // - MUST_INITIALIZE: a failed save/load just reports "not ready yet".
+        // - CORE_VARIABLE_SIZE: retro_serialize_size() is queried before every save, and the
+        //   size check on load is relaxed; we acknowledge it with FRONT_VARIABLE_SIZE.
+        // - SINGLE_SESSION: enforced by SaveStates (only states saved in this session load).
+        // - ENDIAN/PLATFORM_DEPENDENT: cleared. We cannot tell whether a state file was copied
+        //   from another machine (the file records no host), so we cannot promise it.
+        // Unknown bits are cleared: we cannot promise to honor quirks we do not know.
+        constexpr uint64_t kSupported =
+            RETRO_SERIALIZATION_QUIRK_INCOMPLETE | RETRO_SERIALIZATION_QUIRK_MUST_INITIALIZE |
+            RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE | RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION;
+        auto& quirks = *static_cast<uint64_t*>(data);
+        quirks &= kSupported;
+        if (quirks & RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE) {
+            quirks |= RETRO_SERIALIZATION_QUIRK_FRONT_VARIABLE_SIZE;
+        }
+        serialization_quirks_ = quirks;
+        return true;
+    }
 
     // libretro.h: answering NULL means "no directory defined"; the core then picks its own.
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -76,6 +77,16 @@ class LibretroCore {
     unsigned last_frame_height() const { return frame_.height; }
     const uint8_t* system_ram_data() const;
     size_t system_ram_size() const;
+    // Absolute path of the loaded game (empty when none).
+    const std::string& game_path() const { return game_path_; }
+
+    // Save states: the core's retro_serialize() data. serialize_state() fails when the core
+    // cannot save (now, or ever); unserialize_state() rejects data whose size does not match
+    // the core before the core ever sees it, so a wrong file cannot corrupt the running game.
+    bool serialize_state(std::vector<uint8_t>& out, std::string& error);
+    bool unserialize_state(std::span<const uint8_t> data, std::string& error);
+    // RETRO_SERIALIZATION_QUIRK_* flags announced by the core, as we acknowledged them.
+    uint64_t serialization_quirks() const { return serialization_quirks_; }
 
   private:
     // Entry points looked up in the .so. decltype keeps each signature identical to libretro.h.
@@ -142,6 +153,7 @@ class LibretroCore {
     bool reported_bad_frame_ = false; // log a rejected frame only once
     AudioSink* audio_sink_ = nullptr;
     JoypadState* joypad_state_ = nullptr;
+    uint64_t serialization_quirks_ = 0;
     std::vector<int16_t> audio_samples_;
     bool audio_buffer_failed_ = false;
     bool reported_audio_buffer_failure_ = false;
