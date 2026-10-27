@@ -1,6 +1,7 @@
 // cheevo-workbench entry point: creates the SDL3 window with an OpenGL context, loads the
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
+#include "cw/devtools/code_notes.hpp"
 #include "cw/devtools/game_hash.hpp"
 #include "cw/devtools/memory_search.hpp"
 #include "cw/devtools/watch_list.hpp"
@@ -35,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -253,10 +255,160 @@ struct MemorySearchState {
     bool message_is_error = false;
 };
 
+struct CodeNotesUiState {
+    bool open = false;
+    std::string filter;
+    std::string note_editor;
+    std::optional<uint32_t> note_editor_address;
+    std::string editor_message;
+    bool editor_message_is_error = false;
+    std::string ra_cache_path_input;
+    std::filesystem::path ra_cache_dir;
+    std::string cache_message;
+    bool cache_message_is_error = false;
+    bool notes_loaded = false;
+    std::optional<uint32_t> loaded_game_id;
+    std::filesystem::path loaded_data_dir;
+    std::filesystem::path loaded_ra_cache_dir;
+};
+
 void report_message(UiState& ui, Notice& notice, const std::string& text, bool ok) {
     ui.status_message = text;
     ui.status_is_error = !ok;
     show_notice(notice, text, ok);
+}
+
+bool directory_exists(const std::filesystem::path& path);
+
+int string_input_callback(ImGuiInputTextCallbackData* data) {
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+        auto* value = static_cast<std::string*>(data->UserData);
+        value->resize(static_cast<size_t>(data->BufTextLen));
+        data->Buf = value->data();
+    }
+    return 0;
+}
+
+bool input_text_string(const char* label, std::string& value, ImGuiInputTextFlags flags = 0) {
+    value.reserve(value.size() + 1);
+    return ImGui::InputText(label, value.data(), value.capacity() + 1,
+                            flags | ImGuiInputTextFlags_CallbackResize, string_input_callback,
+                            &value);
+}
+
+bool input_text_multiline_string(const char* label, std::string& value, const ImVec2& size,
+                                 ImGuiInputTextFlags flags = 0) {
+    value.reserve(value.size() + 1);
+    return ImGui::InputTextMultiline(label, value.data(), value.capacity() + 1, size,
+                                     flags | ImGuiInputTextFlags_CallbackResize,
+                                     string_input_callback, &value);
+}
+
+std::filesystem::path load_ra_cache_dir(const std::filesystem::path& config_dir) {
+    if (config_dir.empty()) {
+        return {};
+    }
+    std::ifstream input(config_dir / "ra-cache-path.txt");
+    std::string path;
+    if (!input || !std::getline(input, path)) {
+        return {};
+    }
+    if (!path.empty() && path.back() == '\r') {
+        path.pop_back();
+    }
+    return path.empty() ? std::filesystem::path{} : std::filesystem::path(path);
+}
+
+bool save_ra_cache_dir(const std::filesystem::path& config_dir, const std::string& path_text,
+                       std::filesystem::path& saved_path, std::string& error) {
+    if (config_dir.empty()) {
+        error = "The configuration directory is unavailable; the RACache path cannot be saved.";
+        return false;
+    }
+    const std::filesystem::path path(path_text);
+    if (!path.empty() && !path.is_absolute()) {
+        error = "Enter an absolute path to the RACache directory, or leave it empty.";
+        return false;
+    }
+    if (!path.empty() && !directory_exists(path)) {
+        error = "The selected RACache directory does not exist.";
+        return false;
+    }
+
+    const std::filesystem::path file = config_dir / "ra-cache-path.txt";
+    std::ofstream output(file, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        error = "Could not write " + file.string();
+        return false;
+    }
+    output << path_text << '\n';
+    output.close();
+    if (!output) {
+        error = "Could not finish writing " + file.string();
+        return false;
+    }
+    saved_path = path;
+    error.clear();
+    return true;
+}
+
+void sync_code_notes(const UiState& ui, const std::filesystem::path& data_dir, cw::CodeNotes& notes,
+                     CodeNotesUiState& state) {
+    if (state.notes_loaded && state.loaded_game_id == ui.game_id &&
+        state.loaded_data_dir == data_dir && state.loaded_ra_cache_dir == state.ra_cache_dir) {
+        return;
+    }
+    notes.load(ui.game_id, data_dir, state.ra_cache_dir);
+    state.notes_loaded = true;
+    state.loaded_game_id = ui.game_id;
+    state.loaded_data_dir = data_dir;
+    state.loaded_ra_cache_dir = state.ra_cache_dir;
+    state.note_editor_address.reset();
+    state.note_editor.clear();
+    state.editor_message.clear();
+}
+
+std::string lowercase_ascii(std::string_view text) {
+    std::string result(text);
+    std::transform(result.begin(), result.end(), result.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return result;
+}
+
+bool note_matches_filter(const cw::CodeNote& note, std::string_view source,
+                         std::string_view filter) {
+    if (filter.empty()) {
+        return true;
+    }
+    char address[24];
+    std::snprintf(address, sizeof(address), "0x%06X", note.address);
+    const std::string needle = lowercase_ascii(filter);
+    return lowercase_ascii(address).find(needle) != std::string::npos ||
+           lowercase_ascii(note.note).find(needle) != std::string::npos ||
+           lowercase_ascii(source).find(needle) != std::string::npos ||
+           lowercase_ascii(note.author).find(needle) != std::string::npos;
+}
+
+void draw_note_preview(const cw::CodeNote* note) {
+    if (!note) {
+        ImGui::TextDisabled("--");
+        return;
+    }
+    const size_t end = note->note.find('\n');
+    ImGui::TextUnformatted(note->note.data(), end == std::string::npos
+                                                  ? note->note.data() + note->note.size()
+                                                  : note->note.data() + end);
+}
+
+void draw_code_note_load_errors(const cw::CodeNotes& notes) {
+    const ImVec4 color(1.0f, 0.45f, 0.4f, 1.0f);
+    if (!notes.user_error().empty()) {
+        ImGui::TextColored(color, "%s", notes.user_error().c_str());
+    }
+    if (!notes.server_error().empty()) {
+        ImGui::TextColored(color, "%s", notes.server_error().c_str());
+    }
 }
 
 // Shift+F1..F4 saves slot 1..4, F1..F4 loads it. RouteGlobal keeps them active in tool windows.
@@ -901,8 +1053,72 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer,
     }
 }
 
+void draw_memory_code_note_editor(MemoryViewerState& viewer, CodeNotesUiState& state,
+                                  cw::CodeNotes& notes) {
+    const uint32_t address = viewer.selected_address;
+    if (state.note_editor_address != address) {
+        state.note_editor_address = address;
+        const cw::CodeNote* note = notes.user_note_at(address);
+        state.note_editor = note ? note->note : "";
+        state.editor_message.clear();
+        state.editor_message_is_error = false;
+    }
+
+    ImGui::SeparatorText("Code Note");
+    if (!notes.game_id()) {
+        ImGui::TextDisabled("Defina o game ID na janela Status.");
+        return;
+    }
+    if (!notes.user_error().empty()) {
+        ImGui::TextWrapped("%s", notes.user_error().c_str());
+    }
+    ImGui::Text("Address 0x%06X", address);
+    input_text_multiline_string("My note", state.note_editor, ImVec2(-FLT_MIN, 100.0f));
+    if (ImGui::Button("Save note")) {
+        std::string error;
+        if (notes.set_note(address, state.note_editor, error)) {
+            state.editor_message = "Saved local note.";
+            state.editor_message_is_error = false;
+        } else {
+            state.editor_message = std::move(error);
+            state.editor_message_is_error = true;
+        }
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(notes.user_note_at(address) == nullptr);
+    if (ImGui::Button("Delete note")) {
+        std::string error;
+        if (notes.remove_note(address, error)) {
+            state.note_editor.clear();
+            state.editor_message = "Deleted local note.";
+            state.editor_message_is_error = false;
+        } else {
+            state.editor_message = std::move(error);
+            state.editor_message_is_error = true;
+        }
+    }
+    ImGui::EndDisabled();
+
+    if (const cw::CodeNote* server_note = notes.server_note_at(address)) {
+        ImGui::SeparatorText("RAIntegration server note (read-only)");
+        if (!server_note->author.empty()) {
+            ImGui::Text("By %s", server_note->author.c_str());
+        }
+        ImGui::TextWrapped("%s", server_note->note.c_str());
+    }
+    if (!notes.server_error().empty()) {
+        ImGui::TextWrapped("%s", notes.server_error().c_str());
+    }
+    if (!state.editor_message.empty()) {
+        const ImVec4 color = state.editor_message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+                                                           : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::TextColored(color, "%s", state.editor_message.c_str());
+    }
+}
+
 void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer,
-                        cw::WatchList& watch_list) {
+                        cw::WatchList& watch_list, cw::CodeNotes& notes,
+                        CodeNotesUiState& notes_ui) {
     if (!viewer.open) {
         return;
     }
@@ -1116,6 +1332,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer,
     ImGui::SameLine();
     if (ImGui::BeginChild("SelectedValue", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         draw_memory_value_editor(core, viewer, watch_list);
+        draw_memory_code_note_editor(viewer, notes_ui, notes);
     }
     ImGui::EndChild();
     ImGui::End();
@@ -1146,7 +1363,8 @@ void jump_to_memory_address(MemoryViewerState& viewer, const cw::MemoryReader& m
 }
 
 void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchState& state,
-                        MemoryViewerState& viewer, cw::WatchList& watch_list) {
+                        MemoryViewerState& viewer, cw::WatchList& watch_list,
+                        const cw::CodeNotes& notes) {
     if (!state.open) {
         return;
     }
@@ -1174,6 +1392,10 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
         ImGui::End();
         return;
     }
+    if (!notes.game_id()) {
+        ImGui::TextDisabled("Defina o game ID na janela Status.");
+    }
+    draw_code_note_load_errors(notes);
 
     if (state.selected_region < 0 || static_cast<size_t>(state.selected_region) > regions.size()) {
         state.selected_region = 0;
@@ -1406,7 +1628,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
     if (state.search.active()) {
         if (state.search.candidate_count() == 0) {
             ImGui::TextDisabled("No candidates remain. Undo a filter or start a new search.");
-        } else if (ImGui::BeginTable("MemorySearchResults", 5,
+        } else if (ImGui::BeginTable("MemorySearchResults", 6,
                                      ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                          ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
                                      ImVec2(0.0f, 0.0f))) {
@@ -1414,6 +1636,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             ImGui::TableSetupColumn("Current");
             ImGui::TableSetupColumn("Previous");
             ImGui::TableSetupColumn("First snapshot");
+            ImGui::TableSetupColumn("Note");
             ImGui::TableSetupColumn("Watch", ImGuiTableColumnFlags_WidthFixed, 64.0f);
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
@@ -1453,6 +1676,8 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
                     ImGui::TableSetColumnIndex(3);
                     ImGui::Text("0x%X", result->initial);
                     ImGui::TableSetColumnIndex(4);
+                    draw_note_preview(notes.display_note_at(result->address));
+                    ImGui::TableSetColumnIndex(5);
                     if (ImGui::SmallButton("Watch")) {
                         cw::MemoryValueSize watch_size = state.size;
                         cw::ByteOrder watch_order = state.byte_order;
@@ -1483,7 +1708,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
 }
 
 void draw_watch_list(cw::WatchList& watch_list, WatchListUiState& state, MemoryViewerState& viewer,
-                     const cw::MemoryReader& memory, uint64_t frame) {
+                     const cw::MemoryReader& memory, uint64_t frame, const cw::CodeNotes& notes) {
     if (!state.open) {
         return;
     }
@@ -1563,10 +1788,14 @@ void draw_watch_list(cw::WatchList& watch_list, WatchListUiState& state, MemoryV
                                                     : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
         ImGui::TextColored(color, "%s", state.message.c_str());
     }
+    if (!notes.game_id()) {
+        ImGui::TextDisabled("Defina o game ID na janela Status.");
+    }
+    draw_code_note_load_errors(notes);
 
     if (watch_list.size() == 0) {
         ImGui::TextDisabled("No watched addresses yet.");
-    } else if (ImGui::BeginTable("WatchListItems", 8,
+    } else if (ImGui::BeginTable("WatchListItems", 9,
                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                      ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
                                  ImVec2(0.0f, 0.0f))) {
@@ -1577,6 +1806,7 @@ void draw_watch_list(cw::WatchList& watch_list, WatchListUiState& state, MemoryV
         ImGui::TableSetupColumn("Current (decimal)", ImGuiTableColumnFlags_WidthFixed, 132.0f);
         ImGui::TableSetupColumn("Previous", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Label");
+        ImGui::TableSetupColumn("Note");
         ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, 76.0f);
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
@@ -1653,6 +1883,8 @@ void draw_watch_list(cw::WatchList& watch_list, WatchListUiState& state, MemoryV
                 ImGui::TextUnformatted(item.label.c_str());
             }
             ImGui::TableSetColumnIndex(7);
+            draw_note_preview(notes.display_note_at(item.address));
+            ImGui::TableSetColumnIndex(8);
             if (ImGui::SmallButton("Remove")) {
                 remove_request = i;
             }
@@ -1671,11 +1903,173 @@ void draw_watch_list(cw::WatchList& watch_list, WatchListUiState& state, MemoryV
     ImGui::End();
 }
 
+void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
+                            const std::filesystem::path& config_dir, MemoryViewerState& viewer,
+                            const cw::MemoryReader& memory) {
+    if (!state.open) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(900.0f, 580.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Code Notes", &state.open)) {
+        ImGui::End();
+        return;
+    }
+
+    input_text_string("RACache directory", state.ra_cache_path_input);
+    ImGui::SameLine();
+    if (ImGui::Button("Save path")) {
+        std::filesystem::path saved_path;
+        std::string error;
+        if (save_ra_cache_dir(config_dir, state.ra_cache_path_input, saved_path, error)) {
+            state.ra_cache_dir = std::move(saved_path);
+            state.cache_message = state.ra_cache_dir.empty()
+                                      ? "Server notes disabled."
+                                      : "RACache path saved; server notes reloaded.";
+            state.cache_message_is_error = false;
+            state.notes_loaded = false;
+        } else {
+            state.cache_message = std::move(error);
+            state.cache_message_is_error = true;
+        }
+    }
+    ImGui::TextDisabled(
+        "Use the RACache folder that contains Data/; leave empty to disable server notes.");
+    if (!state.cache_message.empty()) {
+        const ImVec4 color = state.cache_message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+                                                          : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::TextColored(color, "%s", state.cache_message.c_str());
+    }
+    if (!notes.game_id()) {
+        ImGui::TextDisabled("Defina o game ID na janela Status.");
+        ImGui::End();
+        return;
+    }
+    ImGui::Text("Game ID: %u", *notes.game_id());
+    draw_code_note_load_errors(notes);
+    input_text_string("Filter", state.filter);
+
+    const auto open_note = [&viewer, &memory](const cw::CodeNote& note) {
+        jump_to_memory_address(viewer, memory, note.address);
+    };
+    if (ImGui::BeginTabBar("CodeNotesTabs")) {
+        if (ImGui::BeginTabItem("All notes")) {
+            struct Row {
+                const cw::CodeNote* note = nullptr;
+                bool server = false;
+            };
+            std::vector<Row> rows;
+            rows.reserve(notes.user_notes().size() + notes.server_notes().size());
+            for (const cw::CodeNote& note : notes.user_notes()) {
+                rows.push_back({&note, false});
+            }
+            for (const cw::CodeNote& note : notes.server_notes()) {
+                rows.push_back({&note, true});
+            }
+            std::stable_sort(rows.begin(), rows.end(), [](const Row& left, const Row& right) {
+                if (left.note->address != right.note->address) {
+                    return left.note->address < right.note->address;
+                }
+                return left.server < right.server;
+            });
+
+            if (rows.empty()) {
+                ImGui::TextDisabled("No code notes for this game yet.");
+            } else if (ImGui::BeginTable("AllCodeNotes", 3,
+                                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                             ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                                         ImVec2(0.0f, 0.0f))) {
+                ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Note");
+                ImGui::TableSetupColumn("Origin", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableHeadersRow();
+                for (size_t i = 0; i < rows.size(); ++i) {
+                    const Row& row = rows[i];
+                    const std::string origin = row.server ? "Server" : "Mine";
+                    if (!note_matches_filter(*row.note, origin, state.filter)) {
+                        continue;
+                    }
+                    ImGui::PushID(static_cast<int>(i));
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    char address[24];
+                    std::snprintf(address, sizeof(address), "0x%06X", row.note->address);
+                    if (ImGui::Selectable(address)) {
+                        open_note(*row.note);
+                    }
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextWrapped("%s", row.note->note.c_str());
+                    ImGui::TableSetColumnIndex(2);
+                    if (row.server && !row.note->author.empty()) {
+                        ImGui::Text("Server (%s)", row.note->author.c_str());
+                    } else {
+                        ImGui::TextUnformatted(origin.c_str());
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("To publish")) {
+            const std::vector<cw::CodeNote> notes_to_publish = notes.notes_to_publish();
+            ImGui::TextDisabled(
+                "Copy each new or changed note into RAIntegration. This tool never uploads notes.");
+            if (!notes.server_error().empty()) {
+                ImGui::TextDisabled("Fix the server cache JSON before comparing notes to publish.");
+            } else if (!notes.user_error().empty()) {
+                ImGui::TextDisabled(
+                    "Fix the workbench notes JSON before comparing notes to publish.");
+            } else if (notes_to_publish.empty()) {
+                ImGui::TextDisabled("There are no new or changed notes to publish.");
+            } else if (ImGui::BeginTable("PublishCodeNotes", 4,
+                                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                             ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                                         ImVec2(0.0f, 0.0f))) {
+                ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Note");
+                ImGui::TableSetupColumn("Change", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+                ImGui::TableSetupColumn("Copy", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableHeadersRow();
+                for (size_t i = 0; i < notes_to_publish.size(); ++i) {
+                    const cw::CodeNote& note = notes_to_publish[i];
+                    if (!note_matches_filter(note, "Mine", state.filter)) {
+                        continue;
+                    }
+                    ImGui::PushID(static_cast<int>(i));
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    char address[24];
+                    std::snprintf(address, sizeof(address), "0x%06X", note.address);
+                    if (ImGui::Selectable(address)) {
+                        open_note(note);
+                    }
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextWrapped("%s", note.note.c_str());
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::TextUnformatted(notes.server_note_at(note.address) ? "Changed" : "New");
+                    ImGui::TableSetColumnIndex(3);
+                    if (ImGui::SmallButton("Copy")) {
+                        ImGui::SetClipboardText(note.note.c_str());
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End();
+}
+
 void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     cw::SaveStates& save_states, cw::RecentFiles& recent, cw::GameView& game_view,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config,
                     MemoryViewerState& memory_viewer, MemorySearchState& memory_search,
-                    WatchListUiState& watch_list) {
+                    WatchListUiState& watch_list, CodeNotesUiState& code_notes) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -1762,6 +2156,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         ImGui::MenuItem("Memory Viewer", nullptr, &memory_viewer.open);
         ImGui::MenuItem("Memory Search", nullptr, &memory_search.open);
         ImGui::MenuItem("Watch List", nullptr, &watch_list.open);
+        ImGui::MenuItem("Code Notes", nullptr, &code_notes.open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
         ImGui::EndMenu();
     }
@@ -1982,11 +2377,15 @@ int main(int argc, char** argv) {
     cw::GameView game_view;
     const std::filesystem::path data = cw::data_dir();
     cw::SaveStates save_states(data.empty() ? std::filesystem::path{} : data / "states");
+    cw::CodeNotes code_notes;
     Notice notice;
     UiState ui;
     MemoryViewerState memory_viewer;
     MemorySearchState memory_search;
     WatchListUiState watch_list_ui;
+    CodeNotesUiState code_notes_ui;
+    code_notes_ui.ra_cache_dir = load_ra_cache_dir(config);
+    code_notes_ui.ra_cache_path_input = code_notes_ui.ra_cache_dir.string();
     cw::WatchList watch_list;
     ui.system_dir = launch->system_dir;
     const std::string load_error = load_from_options(core, *launch);
@@ -2020,6 +2419,8 @@ int main(int argc, char** argv) {
             }
         }
         handle_dialog_results(ui, dialogs, notice, core, game_view, recent);
+        update_game_identity(ui, core, game_ids);
+        sync_code_notes(ui, data, code_notes, code_notes_ui);
         if (watch_session_generation != ui.game_session_generation) {
             watch_list.clear_highlights();
             watch_session_generation = ui.game_session_generation;
@@ -2091,12 +2492,12 @@ int main(int argc, char** argv) {
             draw_notice(notice, background, central->Pos, max);
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
-                       memory_viewer, memory_search, watch_list_ui);
-        draw_memory_viewer(core, memory_viewer, watch_list);
-        draw_memory_search(ui, core, memory_search, memory_viewer, watch_list);
-        draw_watch_list(watch_list, watch_list_ui, memory_viewer, core.memory(),
-                        core.frame_count());
-        update_game_identity(ui, core, game_ids);
+                       memory_viewer, memory_search, watch_list_ui, code_notes_ui);
+        draw_memory_viewer(core, memory_viewer, watch_list, code_notes, code_notes_ui);
+        draw_memory_search(ui, core, memory_search, memory_viewer, watch_list, code_notes);
+        draw_watch_list(watch_list, watch_list_ui, memory_viewer, core.memory(), core.frame_count(),
+                        code_notes);
+        draw_code_notes_window(code_notes, code_notes_ui, config, memory_viewer, core.memory());
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);
         draw_game_identity(ui, game_ids, notice);
