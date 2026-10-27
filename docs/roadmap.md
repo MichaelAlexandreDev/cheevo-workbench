@@ -6,7 +6,7 @@ are derived from this file; when they disagree, update this file first.
 Order of priority: get the user's set (*Twilight Syndrome: Tansaku-hen*, PS1, game 18238) into
 memory research as early as possible, then logic testing, then authoring.
 
-Status legend: ✅ done · 🟡 in progress · ⏳ planned · 🔒 blocked
+Status legend: ✅ done · 🟡 in progress · ⏳ planned · ⏸ on hold · 🔒 blocked
 
 ## Milestone 1 — Minimal libretro front-end
 
@@ -32,6 +32,7 @@ Status legend: ✅ done · 🟡 in progress · ⏳ planned · 🔒 blocked
 | 2.3 | Memory search: snapshot and compare to previous / first / typed value (=, ≠, <, >, ≤, ≥), sizes as in 2.2 including independent bit-position candidates, optional alignment, All / per-region ranges, bounded undo, filtered result list → open in viewer. Unit-tested on synthetic buffers | 2.1, 2.2 | ✅ |
 | 2.4 | Watch list: addresses to follow live while playing | 2.2 | ⏳ |
 | 2.5 | Code notes, own storage: the user's notes in our own file (`$XDG_DATA_HOME/cheevo-workbench/notes/<GameID>.json`, documented format), shown in viewer, search results and watch list. Server notes are shown **read-only** from RAIntegration's cache `RACache/Data/<GameID>-Notes.json` (configurable RACache path). A "to publish" list shows notes that are new/changed versus the cache, to copy into RAIntegration | 2.2, 2.3, 2.4, 3.1 | ⏳ |
+| 2.6 | **Assisted search** (issue #35): find candidate addresses automatically while the user plays (passive per-frame statistics, classification into flags / area values / counters, a "mark this moment" hotkey). **On hold: the algorithm is to be discussed with the user before any implementation.** | 2.2, 2.3 | ⏸ |
 
 **Unlocks for the set:** memory research (current area, event flags, items…) can begin, with
 notes kept inside the tool from day one.
@@ -56,7 +57,7 @@ notes kept inside the tool from day one.
 
 | Step | Scope | Depends on | Status |
 |---|---|---|---|
-| 3.1 | Game hash with `rc_hash` (PS1 = executable name + contents via `SYSTEM.CNF`); game ID entered manually (no server lookup, hard rule 1). `.bin/.cue` only; CHD is a later option | 1.2 | ⏳ |
+| 3.1 | Game hash with `rc_hash` (PS1 = executable name + contents via `SYSTEM.CNF`); game ID entered manually (no server lookup, hard rule 1). `.bin/.cue` only; CHD is a later option | 1.2 | ✅ |
 | 3.2 | Evaluate logic every frame with `rc_runtime` using in-memory definitions (no `-User.txt` yet); trigger notification; measured values; invalid-address reporting | 2.1, 3.1 | ⏳ |
 | 3.3 | Store/restore runtime progress (hit counts) together with save states (`rc_runtime_progress`) | 3.2, 1.6 | ⏳ |
 

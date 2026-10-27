@@ -3,6 +3,7 @@
 add_library(cw_frontend STATIC
     core_options.cpp
     frame_pacer.cpp
+    game_ids.cpp
     input_state.cpp
     libretro_core.cpp
     libretro_memory.cpp

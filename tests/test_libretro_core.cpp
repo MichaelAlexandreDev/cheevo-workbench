@@ -186,15 +186,29 @@ TEST_CASE("LibretroCore reports core-loading and missing-game errors") {
     const auto missing_core =
         std::filesystem::temp_directory_path() / "cw-test-core-file-that-does-not-exist.so";
     CHECK_FALSE(core.load(missing_core, {}, error));
-    CHECK_FALSE(error.empty());
+    CHECK(error == "File not found: " + missing_core.string());
 
     error.clear();
-    CHECK_FALSE(core.load("libm.so.6", {}, error));
+    CHECK_FALSE(core.load(std::filesystem::temp_directory_path(), {}, error));
+    CHECK(error.starts_with("Not a file: "));
+
+    error.clear();
+    CHECK_FALSE(core.load(CW_NOT_A_CORE_PATH, {}, error)); // a real .so without retro_* functions
     CHECK(error.find("Not a libretro core") != std::string::npos);
 
     error.clear();
     CHECK_FALSE(core.load_game({}, error));
     CHECK(error == "No core loaded");
+}
+
+TEST_CASE("A missing game file is reported as such (issue #34)") {
+    cw::LibretroCore core;
+    std::string error;
+    REQUIRE(core.load(test_core_path(), {}, error));
+    const auto missing_game = std::filesystem::temp_directory_path() / "cw-no-such-game.cue";
+    CHECK_FALSE(core.load_game(missing_game, error));
+    CHECK(error == "File not found: " + missing_game.string());
+    CHECK_FALSE(core.is_game_loaded());
 }
 
 TEST_CASE("LibretroCore can unload and load the synthetic core again") {

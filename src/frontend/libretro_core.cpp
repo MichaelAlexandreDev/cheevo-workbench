@@ -1,5 +1,7 @@
 #include "libretro_core.hpp"
 
+#include "cw/devtools/file_checks.hpp"
+
 #include "input_state.hpp"
 
 #include <SDL3/SDL_log.h>
@@ -11,6 +13,7 @@
 #include <iterator>
 #include <new>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 
 namespace cw {
@@ -56,6 +59,13 @@ bool LibretroCore::load(const std::filesystem::path& core_path, Directories dirs
     error.clear();
     if (s_active) {
         error = "Another core is already loaded";
+        return false;
+    }
+
+    // Say plainly when the file is missing, instead of letting dlopen or the core report a
+    // confusing error ("check that this core supports the file format", issue #34).
+    if (auto problem = regular_file_problem(core_path)) {
+        error = std::move(*problem);
         return false;
     }
 
@@ -144,7 +154,14 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
         return false;
     }
 
-    game_path_ = std::filesystem::absolute(game_path).string();
+    // Resolved once, so the path that is checked is the path the core gets.
+    const std::filesystem::path absolute = std::filesystem::absolute(game_path);
+    if (auto problem = regular_file_problem(absolute)) {
+        error = std::move(*problem);
+        return false;
+    }
+
+    game_path_ = absolute.string();
     // A map announced by an earlier, rejected load_game must not describe this game.
     memory_descriptors_.clear();
     memory_addrspaces_.clear();

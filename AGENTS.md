@@ -10,8 +10,8 @@ dev tools (memory search/viewer, achievement editor, code notes, Rich Presence),
 with the official Windows toolkit (RALibretro + RAIntegration). The step-by-step roadmap is
 `docs/roadmap.md` (single source of truth for steps, dependencies and status).
 
-**Status:** milestone 2 in progress — step 2.1 (RA-addressed memory) done (see
-`docs/roadmap.md`).
+**Status:** milestones 2–3 in progress — 2.1–2.3 and 3.1 done; 2.6 (assisted search) on hold
+for discussion (see `docs/roadmap.md` and issue #35).
 
 **Approach:** written from scratch (not a port of RALibretro/RAIntegration). Shallow clones of
 `RALibretro` (GPL-3.0), `RAIntegration` (MIT) and `rcheevos` (MIT) live in `reference/`
