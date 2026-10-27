@@ -123,3 +123,18 @@ TEST_CASE("Shift held for a save-state hotkey does not press Select") {
     keys[SDL_SCANCODE_Z] = true; // other buttons still reach the game meanwhile
     CHECK(cw::map_keyboard_state(keys) == button_bit(RETRO_DEVICE_ID_JOYPAD_B));
 }
+
+TEST_CASE("Ctrl+R and Ctrl+Q shortcuts do not also press game buttons") {
+    std::array<bool, SDL_SCANCODE_COUNT> keys{};
+    keys[SDL_SCANCODE_R] = true;
+    CHECK(cw::map_keyboard_state(keys) == button_bit(RETRO_DEVICE_ID_JOYPAD_R2));
+    CHECK(cw::map_keyboard_state(keys, true) == 0);
+
+    keys.fill(false);
+    keys[SDL_SCANCODE_Q] = true;
+    CHECK(cw::map_keyboard_state(keys) == button_bit(RETRO_DEVICE_ID_JOYPAD_L));
+    CHECK(cw::map_keyboard_state(keys, true) == 0);
+
+    keys[SDL_SCANCODE_Z] = true;
+    CHECK(cw::map_keyboard_state(keys, true) == button_bit(RETRO_DEVICE_ID_JOYPAD_B));
+}

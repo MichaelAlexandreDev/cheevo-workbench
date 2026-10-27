@@ -6,9 +6,11 @@ add_library(cw_frontend STATIC
     input_state.cpp
     libretro_core.cpp
     paths.cpp
+    recent_files.cpp
     save_state.cpp
     save_states.cpp
     sdl_audio_output.cpp
+    session_state.cpp
     video_frame.cpp)
 target_include_directories(cw_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cw_frontend

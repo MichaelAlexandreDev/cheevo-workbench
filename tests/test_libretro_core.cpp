@@ -95,6 +95,13 @@ void check_frame_pixel(const cw::VideoFrame& frame, unsigned x, unsigned y, Rgb 
     CHECK(frame.rgba[i + 3] == 0xFF);
 }
 
+uint32_t core_frame_counter(const cw::LibretroCore& core) {
+    REQUIRE(core.system_ram_size() >= 4);
+    const uint8_t* ram = core.system_ram_data();
+    return uint32_t{ram[0]} | uint32_t{ram[1]} << 8 | uint32_t{ram[2]} << 16 |
+           uint32_t{ram[3]} << 24;
+}
+
 } // namespace
 
 TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
@@ -142,6 +149,34 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK(core.frame_count() == frames_to_run);
     CHECK(core.last_frame_width() == 64);
     CHECK(core.last_frame_height() == 32);
+}
+
+TEST_CASE("LibretroCore reset preserves the game and clears queued audio") {
+    SyntheticContent content;
+    CaptureAudioSink sink;
+    cw::LibretroCore core;
+    core.set_audio_sink(&sink);
+    std::string error;
+
+    REQUIRE(core.load(test_core_path(), {}, error));
+    REQUIRE(core.load_game(content.path(), error));
+    for (int i = 0; i < 3; ++i) {
+        core.run_frame();
+    }
+    REQUIRE(core_frame_counter(core) == 3);
+    const size_t clear_calls = sink.clear_calls;
+
+    core.reset();
+    CHECK(core.is_loaded());
+    CHECK(core.is_game_loaded());
+    CHECK(core_frame_counter(core) == 0);
+    CHECK(sink.clear_calls == clear_calls + 1);
+
+    const size_t writes_before_advance = sink.write_calls;
+    core.run_frame(true);
+    CHECK(core.frame_count() == 4);
+    CHECK(sink.write_calls == writes_before_advance);
+    CHECK(core_frame_counter(core) == 1);
 }
 
 TEST_CASE("LibretroCore reports core-loading and missing-game errors") {

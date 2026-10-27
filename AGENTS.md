@@ -30,7 +30,8 @@ we build against. To check rcheevos behavior, read the pinned submodule in
 - `tests/` — doctest unit tests (`cw_tests`).
 - `docs/study/` — study notes for the user, **in Brazilian Portuguese** (exception to the
   English-docs rule). After finishing each roadmap step, add or update its section following the
-  format in `docs/study/README.md`.
+  format in `docs/study/README.md`; when a whole milestone is done, also write its "Resumo da
+  etapa" at the top of that milestone's file (format in the same README).
 - `cmake/ThirdParty.cmake` — targets for the vendored deps. rcheevos is built **without**
   `rapi/` and `rc_client*` (server communication, hard rule 1).
 

@@ -36,16 +36,16 @@ std::pair<size_t, double> simulate_clock_pacing(double refresh_hz, double core_f
 } // namespace
 
 TEST_CASE("Clock pacing follows core fps independently of display refresh") {
-    constexpr double kSeconds = 2.0;
+    constexpr double kSeconds = 10.0;
     const auto [frames_144_60, measured_144_60] = simulate_clock_pacing(144.0, 60.0, kSeconds);
     const auto [frames_60_60, measured_60_60] = simulate_clock_pacing(60.0, 60.0, kSeconds);
     const auto [frames_144_50, measured_144_50] = simulate_clock_pacing(144.0, 50.0, kSeconds);
     const auto [frames_60_50, measured_60_50] = simulate_clock_pacing(60.0, 50.0, kSeconds);
 
-    CHECK(frames_144_60 == 120);
-    CHECK(frames_60_60 == 120);
-    CHECK(frames_144_50 == 100);
-    CHECK(frames_60_50 == 100);
+    CHECK(frames_144_60 == static_cast<size_t>(60.0 * kSeconds));
+    CHECK(frames_60_60 == static_cast<size_t>(60.0 * kSeconds));
+    CHECK(frames_144_50 == static_cast<size_t>(50.0 * kSeconds));
+    CHECK(frames_60_50 == static_cast<size_t>(50.0 * kSeconds));
     CHECK(measured_144_60 == doctest::Approx(60.0).epsilon(0.02));
     CHECK(measured_60_60 == doctest::Approx(60.0).epsilon(0.02));
     CHECK(measured_144_50 == doctest::Approx(50.0).epsilon(0.02));
@@ -96,4 +96,24 @@ TEST_CASE("A long clock stall drops overdue frames instead of producing a burst"
     CHECK(pacer.frames_to_run(at_seconds(1.0), 0.0) == 0);
     CHECK(pacer.frames_to_run(at_seconds(1.0 + 1.0 / 60.0), 0.0) == 1);
     CHECK(pacer.frames_to_run(at_seconds(1.0 + 2.0 / 60.0), 0.0) == 1);
+}
+
+TEST_CASE("Measured FPS uses a five-second window and ignores paused time") {
+    Pacer pacer;
+    pacer.set_core_fps(60.0, at_seconds(0.0));
+
+    CHECK_FALSE(pacer.record_frames(30, at_seconds(0.5)));
+    CHECK(pacer.measured_fps() == 0.0);
+    CHECK(pacer.record_frames(270, at_seconds(5.0)));
+    CHECK(pacer.measured_fps() == doctest::Approx(60.0));
+
+    CHECK_FALSE(pacer.record_frames(80, at_seconds(6.0)));
+    CHECK(pacer.measured_fps() == doctest::Approx(60.0));
+    CHECK(pacer.set_paused(true, at_seconds(7.0)));
+    CHECK_FALSE(pacer.record_frames(200, at_seconds(12.0)));
+    CHECK(pacer.measured_fps() == doctest::Approx(60.0));
+
+    CHECK_FALSE(pacer.set_paused(false, at_seconds(12.0)));
+    CHECK_FALSE(pacer.record_frames(60, at_seconds(13.0)));
+    CHECK(pacer.measured_fps() == doctest::Approx(60.0));
 }

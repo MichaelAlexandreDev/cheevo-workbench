@@ -9,6 +9,8 @@ add_executable(cw_tests
     test_frame_pacer.cpp
     test_save_state.cpp
     test_save_states.cpp
+    test_recent_files.cpp
+    test_session_state.cpp
     test_video_frame.cpp)
 target_link_libraries(cw_tests PRIVATE cw_devtools cw_frontend doctest cw_warnings)
 target_compile_definitions(cw_tests PRIVATE CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>")

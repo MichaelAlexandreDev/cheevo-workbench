@@ -51,8 +51,11 @@ class LibretroCore {
     // Unloads the game (if any), calls retro_deinit() and closes the .so. Safe to call twice.
     void unload();
 
+    // Calls retro_reset() without unloading the current game and clears any queued audio.
+    void reset();
     // Emulates one frame (retro_run). Only valid once a game is loaded.
-    void run_frame();
+    // Frame-advance mode can discard that frame's audio while retaining its video and state.
+    void run_frame(bool discard_audio = false);
     // The sink is not owned by the core. Samples from both libretro audio callbacks are buffered
     // during retro_run() and delivered in one write() call when that frame finishes.
     void set_audio_sink(AudioSink* sink);
@@ -62,6 +65,7 @@ class LibretroCore {
     bool is_loaded() const { return handle_ != nullptr; }
     bool is_game_loaded() const { return game_loaded_; }
     const SystemInfo& system_info() const { return system_info_; }
+    const std::string& core_path() const { return core_path_; }
     const retro_system_av_info& av_info() const { return av_info_; }
     retro_pixel_format pixel_format() const { return pixel_format_; }
     const CoreOptions& options() const { return options_; }
