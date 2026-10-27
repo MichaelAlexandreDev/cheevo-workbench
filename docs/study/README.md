@@ -29,3 +29,4 @@ ver o todo antes dos detalhes:
 |---|---|---|
 | [00-planejamento.md](00-planejamento.md) | Por que o projeto existe, decisões de arquitetura | ✅ |
 | [01-front-end-minimo.md](01-front-end-minimo.md) | Etapa 1: janela, core libretro, vídeo, áudio, input, save states e menus | ✅ 1.1–1.7 feitas |
+| [02-memoria.md](02-memoria.md) | Etapa 2: memória em endereços do RA, viewer, busca, watch list, code notes | 🟡 2.1 feita |

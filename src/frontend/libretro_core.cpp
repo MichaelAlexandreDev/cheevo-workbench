@@ -145,6 +145,9 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     }
 
     game_path_ = std::filesystem::absolute(game_path).string();
+    // A map announced by an earlier, rejected load_game must not describe this game.
+    memory_descriptors_.clear();
+    memory_addrspaces_.clear();
     retro_game_info game{.path = game_path_.c_str(), .data = nullptr, .size = 0, .meta = nullptr};
 
     // Disc-based cores (like PS1) read the files themselves and only want the path. Others
@@ -172,6 +175,7 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     clear_frame();
 
     api_.get_system_av_info(&av_info_);
+    rebuild_memory(console_for_core(core_path_));
     if (audio_sink_) {
         audio_sink_->set_sample_rate(av_info_.timing.sample_rate);
     }
@@ -183,6 +187,10 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
 }
 
 void LibretroCore::unload() {
+    // The memory map points into the core's memory: drop it before the core frees that memory.
+    memory_.clear();
+    memory_descriptors_.clear();
+    memory_addrspaces_.clear();
     if (audio_sink_) {
         audio_sink_->clear();
     }
@@ -316,6 +324,35 @@ bool LibretroCore::unserialize_state(std::span<const uint8_t> data, std::string&
     return true;
 }
 
+bool LibretroCore::rebuild_memory(uint32_t console_id) {
+    if (!game_loaded_) {
+        memory_.clear();
+        return false;
+    }
+    retro_memory_map map{.descriptors = memory_descriptors_.data(),
+                         .num_descriptors = static_cast<unsigned>(memory_descriptors_.size())};
+    const bool ok = memory_.init(memory_descriptors_.empty() ? nullptr : &map, &on_core_memory_info,
+                                 console_id);
+    if (ok) {
+        SDL_Log("Memory: console %u, %u bytes of RetroAchievements address space (%s)", console_id,
+                memory_.size(),
+                memory_descriptors_.empty() ? "from retro_get_memory_data" : "from memory maps");
+    } else {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Memory: nothing could be mapped for console %u",
+                    console_id);
+    }
+    return ok;
+}
+
+void LibretroCore::on_core_memory_info(uint32_t id, rc_libretro_core_memory_info_t* info) {
+    info->data = nullptr;
+    info->size = 0;
+    if (s_active && s_active->game_loaded_) {
+        info->data = static_cast<uint8_t*>(s_active->api_.get_memory_data(id));
+        info->size = info->data ? s_active->api_.get_memory_size(id) : 0;
+    }
+}
+
 const uint8_t* LibretroCore::system_ram_data() const {
     if (!game_loaded_ || !api_.get_memory_data) {
         return nullptr;
@@ -340,6 +377,28 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
 
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
         return true;
+
+    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
+        // Usually sent during retro_load_game; the map is built right after it (rebuild_memory).
+        // libretro.h: the front-end keeps its own copy of the map "and its contents, including
+        // strings". The `ptr` fields are the exception: they must stay valid for the session.
+        const auto* map = static_cast<const retro_memory_map*>(data);
+        memory_descriptors_.clear();
+        memory_addrspaces_.clear();
+        if (map->num_descriptors == 0 || !map->descriptors) {
+            return true; // an empty map: rc_libretro falls back to retro_get_memory_data
+        }
+        memory_descriptors_.assign(map->descriptors, map->descriptors + map->num_descriptors);
+        // Sized once before taking c_str(), so the pointers below never move.
+        memory_addrspaces_.resize(memory_descriptors_.size());
+        for (size_t i = 0; i < memory_descriptors_.size(); ++i) {
+            if (const char* name = memory_descriptors_[i].addrspace) {
+                memory_addrspaces_[i] = name;
+                memory_descriptors_[i].addrspace = memory_addrspaces_[i].c_str();
+            }
+        }
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
         // libretro.h: the front-end keeps the flags it supports and clears the others.

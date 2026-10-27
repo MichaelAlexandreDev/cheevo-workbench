@@ -19,6 +19,15 @@
 #define TEST_CORE_AUDIO_MODE_KEY "cw_test_audio_mode"
 #define TEST_CORE_SAMPLE_RATE_KEY "cw_test_sample_rate_change"
 #define TEST_CORE_QUIRKS_KEY "cw_test_serialization_quirks"
+#define TEST_CORE_MEMORY_MAP_KEY "cw_test_memory_map"
+/* With cw_test_fail_load = after_map, retro_load_game announces its memory map and then
+   rejects the content: the front-end must not reuse that map for the next game. */
+#define TEST_CORE_FAIL_LOAD_KEY "cw_test_fail_load"
+/* With cw_test_memory_map = ps1, the core announces a PlayStation-like memory map through
+   SET_MEMORY_MAPS, as Beetle PSX does: 2 MiB of main RAM at the real address 0x00000000 and
+   1 KiB of scratchpad at 0x1F800000. Marker bytes sit at the edges of each RA region. */
+#define TEST_CORE_PS1_RAM_SIZE 0x200000U
+#define TEST_CORE_PS1_SCRATCHPAD_SIZE 0x400U
 /* Announced with the quirks option: two real quirks plus a bit libretro does not define, which
    the front-end must clear (as well as ENDIAN_DEPENDENT, which it cannot enforce). */
 #define TEST_CORE_UNKNOWN_QUIRK ((uint64_t)1 << 40)
@@ -51,6 +60,8 @@ static uint64_t frame_count;
 static bool game_loaded;
 static enum retro_pixel_format pixel_format = RETRO_PIXEL_FORMAT_0RGB1555;
 static uint8_t system_ram[TEST_CORE_RAM_SIZE];
+static uint8_t ps1_ram[TEST_CORE_PS1_RAM_SIZE];
+static uint8_t ps1_scratchpad[TEST_CORE_PS1_SCRATCHPAD_SIZE];
 static union {
     uint32_t alignment[(TEST_CORE_MAX_VIDEO_SIZE + sizeof(uint32_t) - 1U) / sizeof(uint32_t)];
     uint8_t bytes[TEST_CORE_MAX_VIDEO_SIZE];
@@ -149,6 +160,38 @@ static struct retro_core_option_v2_definition core_option_definitions[] = {
             },
         .default_value = "disabled",
     },
+    {
+        .key = TEST_CORE_MEMORY_MAP_KEY,
+        .desc = "Memory map",
+        .desc_categorized = NULL,
+        .info = "Announce no memory map, or a PlayStation-like one through SET_MEMORY_MAPS.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"none", "none"},
+                {"ps1", "ps1"},
+                {"ps1_partial", "ps1_partial"}, /* 1 MiB of main RAM, no scratchpad */
+                {"empty", "empty"},             /* SET_MEMORY_MAPS with no descriptors */
+                {NULL, NULL},
+            },
+        .default_value = "none",
+    },
+    {
+        .key = TEST_CORE_FAIL_LOAD_KEY,
+        .desc = "Fail retro_load_game",
+        .desc_categorized = NULL,
+        .info = "Reject the content after announcing the memory map.",
+        .info_categorized = NULL,
+        .category_key = NULL,
+        .values =
+            {
+                {"disabled", "disabled"},
+                {"after_map", "after_map"},
+                {NULL, NULL},
+            },
+        .default_value = "disabled",
+    },
     {0},
 };
 
@@ -163,6 +206,8 @@ static struct retro_variable legacy_variables[] = {
     {TEST_CORE_AUDIO_MODE_KEY, "Audio callback mode; batch|single"},
     {TEST_CORE_SAMPLE_RATE_KEY, "Change sample rate at frame 3; disabled|enabled"},
     {TEST_CORE_QUIRKS_KEY, "Announce serialization quirks; disabled|enabled"},
+    {TEST_CORE_MEMORY_MAP_KEY, "Memory map; none|ps1|ps1_partial|empty"},
+    {TEST_CORE_FAIL_LOAD_KEY, "Fail retro_load_game; disabled|after_map"},
     {TEST_CORE_INPUT_MODE_KEY, "Input callback mode; individual|bitmask"},
     {NULL, NULL},
 };
@@ -399,6 +444,60 @@ bool retro_load_game(const struct retro_game_info* game) {
                               RETRO_SERIALIZATION_QUIRK_ENDIAN_DEPENDENT | TEST_CORE_UNKNOWN_QUIRK;
             (void)environment_callback(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS, &quirks);
         }
+    }
+    {
+        struct retro_variable map_option = {TEST_CORE_MEMORY_MAP_KEY, NULL};
+        const char* mode = environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &map_option)
+                               ? map_option.value
+                               : NULL;
+        if (mode != NULL && strcmp(mode, "none") != 0) {
+            /* static: libretro.h lets the front-end read the array only during the call, but a
+               lasting array is what real cores use and costs nothing here. */
+            static struct retro_memory_descriptor descriptors[2];
+            static struct retro_memory_map map;
+            /* The address-space name lives in a buffer that is overwritten right after the
+               call: a front-end that kept the pointer instead of copying the string would see
+               the garbage. */
+            static char addrspace[8];
+
+            memset(ps1_ram, 0, sizeof(ps1_ram));
+            memset(ps1_scratchpad, 0, sizeof(ps1_scratchpad));
+            ps1_ram[0x000000] = 0x11;     /* RA 0x000000: first byte of Kernel RAM */
+            ps1_ram[0x00FFFF] = 0x22;     /* RA 0x00FFFF: last byte of Kernel RAM */
+            ps1_ram[0x010000] = 0x33;     /* RA 0x010000: first byte of System RAM */
+            ps1_ram[0x1FFFFF] = 0x44;     /* RA 0x1FFFFF: last byte of System RAM */
+            ps1_scratchpad[0x000] = 0x55; /* RA 0x200000: first byte of the scratchpad */
+            ps1_scratchpad[0x3FF] = 0x66; /* RA 0x2003FF: last byte of the scratchpad */
+
+            memset(descriptors, 0, sizeof(descriptors));
+            memcpy(addrspace, "ram", 4);
+            descriptors[0].flags = RETRO_MEMDESC_SYSTEM_RAM;
+            descriptors[0].ptr = ps1_ram;
+            descriptors[0].start = 0x00000000U;
+            descriptors[0].len = TEST_CORE_PS1_RAM_SIZE;
+            descriptors[0].addrspace = addrspace;
+            descriptors[1].flags = RETRO_MEMDESC_SYSTEM_RAM;
+            descriptors[1].ptr = ps1_scratchpad;
+            descriptors[1].start = 0x1F800000U;
+            descriptors[1].len = TEST_CORE_PS1_SCRATCHPAD_SIZE;
+            map.descriptors = descriptors;
+            map.num_descriptors = 2;
+            if (strcmp(mode, "ps1_partial") == 0) {
+                descriptors[0].len = TEST_CORE_PS1_RAM_SIZE / 2; /* RA 0x000000-0x0FFFFF only */
+                map.num_descriptors = 1;
+            } else if (strcmp(mode, "empty") == 0) {
+                map.descriptors = NULL;
+                map.num_descriptors = 0;
+            }
+            (void)environment_callback(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
+            memcpy(addrspace, "XXXXXXX", 8);
+        }
+    }
+    {
+        struct retro_variable fail_option = {TEST_CORE_FAIL_LOAD_KEY, NULL};
+        if (environment_callback(RETRO_ENVIRONMENT_GET_VARIABLE, &fail_option) &&
+            fail_option.value != NULL && strcmp(fail_option.value, "after_map") == 0)
+            return false;
     }
     {
         struct retro_variable input_mode = {TEST_CORE_INPUT_MODE_KEY, NULL};

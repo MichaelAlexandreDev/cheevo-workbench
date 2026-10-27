@@ -2,6 +2,7 @@
 
 #include "audio_sink.hpp"
 #include "core_options.hpp"
+#include "libretro_memory.hpp"
 #include "video_frame.hpp"
 
 #include <libretro.h>
@@ -89,6 +90,18 @@ class LibretroCore {
     // the core before the core ever sees it, so a wrong file cannot corrupt the running game.
     bool serialize_state(std::vector<uint8_t>& out, std::string& error);
     bool unserialize_state(std::span<const uint8_t> data, std::string& error);
+    // The console's memory in RetroAchievements addresses (empty when no game is loaded).
+    // Built when the game loads, for the console detected from the core's file name.
+    const MemoryReader& memory() const { return memory_; }
+    uint32_t console_id() const { return memory_.console_id(); }
+    // Maps the memory again for another console (e.g. one chosen by the user, or in tests).
+    // Returns false if nothing could be mapped.
+    bool rebuild_memory(uint32_t console_id);
+    // The descriptors of the last SET_MEMORY_MAPS, as copied (empty without a map).
+    std::span<const retro_memory_descriptor> memory_descriptors() const {
+        return memory_descriptors_;
+    }
+
     // RETRO_SERIALIZATION_QUIRK_* flags announced by the core, as we acknowledged them.
     uint64_t serialization_quirks() const { return serialization_quirks_; }
 
@@ -132,6 +145,8 @@ class LibretroCore {
     static int16_t RETRO_CALLCONV on_input_state(unsigned port, unsigned device, unsigned index,
                                                  unsigned id);
     static void RETRO_CALLCONV on_log(retro_log_level level, const char* fmt, ...);
+    // rc_libretro asks for retro_get_memory_data/size through this.
+    static void RC_CCONV on_core_memory_info(uint32_t id, rc_libretro_core_memory_info_t* info);
 
     static LibretroCore* s_active;
 
@@ -158,6 +173,11 @@ class LibretroCore {
     AudioSink* audio_sink_ = nullptr;
     JoypadState* joypad_state_ = nullptr;
     uint64_t serialization_quirks_ = 0;
+    // Copy of SET_MEMORY_MAPS: the core's array (and its strings) may not outlive the call, but
+    // the `ptr` fields (into the core's memory) stay valid while the game is loaded.
+    std::vector<retro_memory_descriptor> memory_descriptors_;
+    std::vector<std::string> memory_addrspaces_; // the descriptors' addrspace strings
+    LibretroMemory memory_;
     std::vector<int16_t> audio_samples_;
     bool audio_buffer_failed_ = false;
     bool reported_audio_buffer_failure_ = false;

@@ -5,6 +5,8 @@ add_executable(cw_tests
     test_main.cpp
     test_rcheevos.cpp
     test_libretro_core.cpp
+    test_libretro_memory.cpp
+    test_memory.cpp
     test_input_state.cpp
     test_frame_pacer.cpp
     test_save_state.cpp

@@ -18,6 +18,7 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_internal.h> // DockBuilderGetCentralNode: where the game is drawn
+#include <rc_consoles.h>
 
 #include <algorithm>
 #include <atomic>
@@ -604,6 +605,20 @@ std::string recent_label(const cw::RecentFile& entry) {
     return game + " — " + entry.core.filename().string();
 }
 
+// Console and memory regions as RetroAchievements sees them (the memory viewer comes in 2.2).
+void draw_memory_summary(const cw::LibretroCore& core) {
+    const cw::MemoryReader& memory = core.memory();
+    if (memory.size() == 0) {
+        ImGui::TextDisabled("Memory: not mapped");
+        return;
+    }
+    ImGui::Text("Memory: %s, %u bytes", rc_console_name(core.console_id()), memory.size());
+    for (const cw::MemoryRegionInfo& region : memory.regions()) {
+        ImGui::BulletText("0x%06X-0x%06X %s%s", region.start, region.end,
+                          region.description.c_str(), region.available ? "" : " (unavailable)");
+    }
+}
+
 void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     cw::SaveStates& save_states, cw::RecentFiles& recent, cw::GameView& game_view,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config) {
@@ -730,6 +745,7 @@ void draw_status_window(const cw::LibretroCore& core, const UiState& ui,
             ImGui::Text("Frames run: %llu", static_cast<unsigned long long>(core.frame_count()));
             ImGui::Text("Measured FPS: %.2f", pacer.measured_fps());
             ImGui::Text("Session: %s", ui.session.paused() ? "Paused" : "Running");
+            draw_memory_summary(core);
         }
     }
 

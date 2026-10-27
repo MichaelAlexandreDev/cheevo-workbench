@@ -5,6 +5,7 @@ add_library(cw_frontend STATIC
     frame_pacer.cpp
     input_state.cpp
     libretro_core.cpp
+    libretro_memory.cpp
     paths.cpp
     recent_files.cpp
     save_state.cpp
@@ -14,7 +15,7 @@ add_library(cw_frontend STATIC
     video_frame.cpp)
 target_include_directories(cw_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cw_frontend
-    PUBLIC libretro_api SDL3::SDL3
+    PUBLIC cw_devtools libretro_api SDL3::SDL3
     PRIVATE ${CMAKE_DL_LIBS} cw_warnings)
 
 # The application: SDL3 window, OpenGL rendering and Dear ImGui UI.
