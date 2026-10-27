@@ -11,6 +11,7 @@
 #include <iterator>
 #include <new>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 
 namespace cw {
@@ -56,6 +57,14 @@ bool LibretroCore::load(const std::filesystem::path& core_path, Directories dirs
     error.clear();
     if (s_active) {
         error = "Another core is already loaded";
+        return false;
+    }
+
+    // Say plainly when the file is missing, instead of letting dlopen or the core report a
+    // confusing error ("check that this core supports the file format", issue #34).
+    if (std::error_code ec; !std::filesystem::is_regular_file(core_path, ec)) {
+        error = (std::filesystem::exists(core_path, ec) ? "Not a file: " : "File not found: ") +
+                core_path.string();
         return false;
     }
 
@@ -141,6 +150,12 @@ bool LibretroCore::load_symbols(std::string& error) {
 bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string& error) {
     if (!initialized_ || game_loaded_) {
         error = initialized_ ? "A game is already loaded" : "No core loaded";
+        return false;
+    }
+
+    if (std::error_code ec; !std::filesystem::is_regular_file(game_path, ec)) {
+        error = (std::filesystem::exists(game_path, ec) ? "Not a file: " : "File not found: ") +
+                game_path.string();
         return false;
     }
 

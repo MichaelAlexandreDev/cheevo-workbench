@@ -1,8 +1,10 @@
 // cheevo-workbench entry point: creates the SDL3 window with an OpenGL context, loads the
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
+#include "cw/devtools/game_hash.hpp"
 #include "cw/devtools/memory_search.hpp"
 #include "frame_pacer.hpp"
+#include "game_ids.hpp"
 #include "game_view.hpp"
 #include "input_state.hpp"
 #include "libretro_core.hpp"
@@ -188,6 +190,13 @@ struct UiState {
     std::string status_message;
     bool status_is_error = false;
     uint64_t game_session_generation = 0;
+    // Identity of the loaded game: its RetroAchievements hash, computed when the game changes,
+    // and the game ID the user entered for that hash (no server lookup, AGENTS.md rule 1).
+    std::string identified_game_path;
+    std::string game_hash;
+    std::string game_hash_error;
+    std::optional<uint32_t> game_id;
+    char game_id_input[16] = "";
 };
 
 struct MemoryViewerState {
@@ -1493,6 +1502,80 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
     ImGui::EndMainMenuBar();
 }
 
+// Recomputes the hash when another game is loaded (0.3 ms for a PS1 disc), and looks up the
+// game ID stored for it.
+void update_game_identity(UiState& ui, const cw::LibretroCore& core, const cw::GameIds& ids) {
+    if (core.game_path() == ui.identified_game_path) {
+        return;
+    }
+    ui.identified_game_path = core.game_path();
+    ui.game_hash.clear();
+    ui.game_hash_error.clear();
+    ui.game_id.reset();
+    ui.game_id_input[0] = '\0';
+    if (ui.identified_game_path.empty()) {
+        return;
+    }
+    if (core.console_id() == RC_CONSOLE_UNKNOWN) {
+        ui.game_hash_error = "Unknown console for this core: no RetroAchievements hash";
+        return;
+    }
+    if (const auto hash =
+            cw::compute_game_hash(ui.identified_game_path, core.console_id(), ui.game_hash_error)) {
+        ui.game_hash = *hash;
+        ui.game_id = ids.find(*hash);
+        if (ui.game_id) {
+            std::snprintf(ui.game_id_input, sizeof(ui.game_id_input), "%u", *ui.game_id);
+        }
+        SDL_Log("Game hash %s, game ID %s", hash->c_str(),
+                ui.game_id ? std::to_string(*ui.game_id).c_str() : "not set");
+    } else {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Game hash: %s", ui.game_hash_error.c_str());
+    }
+}
+
+// Appended to the Status window: the hash, and the game ID the user types once per hash.
+void draw_game_identity(UiState& ui, cw::GameIds& ids, Notice& notice) {
+    if (ui.identified_game_path.empty()) {
+        return;
+    }
+    ImGui::Begin("Status");
+    ImGui::Separator();
+    if (ui.game_hash.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Hash: %s", ui.game_hash_error.c_str());
+        ImGui::End();
+        return;
+    }
+    ImGui::Text("Hash: %s", ui.game_hash.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy")) {
+        ImGui::SetClipboardText(ui.game_hash.c_str());
+    }
+    ImGui::SetNextItemWidth(100.0f);
+    ImGui::InputText("##game_id", ui.game_id_input, sizeof(ui.game_id_input),
+                     ImGuiInputTextFlags_CharsDecimal);
+    ImGui::SameLine();
+    if (ImGui::Button("Save game ID")) {
+        const unsigned long value = std::strtoul(ui.game_id_input, nullptr, 10);
+        std::string error;
+        if (value > UINT32_MAX) {
+            show_notice(notice, "Game ID too large", false);
+        } else if (ids.set(ui.game_hash, static_cast<uint32_t>(value), error)) {
+            ui.game_id = value == 0 ? std::nullopt : std::optional<uint32_t>(value);
+            show_notice(notice, value == 0 ? "Game ID cleared" : "Game ID saved", true);
+        } else {
+            show_notice(notice, error, false);
+        }
+    }
+    if (ui.game_id) {
+        ImGui::Text("Game ID: %u", *ui.game_id);
+    } else {
+        ImGui::TextDisabled("Game ID not set: type the number from the game's page on");
+        ImGui::TextDisabled("retroachievements.org (e.g. 18238) and save it once.");
+    }
+    ImGui::End();
+}
+
 void draw_status_window(const cw::LibretroCore& core, const UiState& ui,
                         const cw::SdlAudioOutput& audio, double queued_audio_seconds,
                         const cw::FramePacer& pacer, const cw::JoypadState& input,
@@ -1606,6 +1689,8 @@ int main(int argc, char** argv) {
     io.IniFilename = ini_path.empty() ? nullptr : ini_path.c_str();
     cw::RecentFiles recent(config.empty() ? std::filesystem::path{} : config / "recent-files.txt");
     recent.load();
+    cw::GameIds game_ids(config.empty() ? std::filesystem::path{} : config / "game-ids.txt");
+    game_ids.load();
 
     ImGui::StyleColorsDark();
     ImGui::GetStyle().ScaleAllSizes(scale);
@@ -1731,8 +1816,10 @@ int main(int argc, char** argv) {
                        memory_viewer, memory_search);
         draw_memory_viewer(core, memory_viewer);
         draw_memory_search(ui, core, memory_search, memory_viewer);
+        update_game_identity(ui, core, game_ids);
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);
+        draw_game_identity(ui, game_ids, notice);
         if (ui.show_imgui_demo) {
             ImGui::ShowDemoWindow(&ui.show_imgui_demo);
         }
