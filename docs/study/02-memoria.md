@@ -181,6 +181,20 @@ do mesmo jeito: a função estática usa o `s_active`.
 
 - Nenhum erro de build ou teste. A escrita no core sintético confirmou que o endereço RA aponta para a RAM original do core, não para uma cópia do viewer.
 
+### Na revisão (Claude, PR #33)
+
+- **O destaque durava um único quadro.** A primeira versão comparava a tela com a do quadro de
+  interface anterior: um byte que muda *uma vez* (uma flag de história, justamente o que você vai
+  procurar) acendia por 1/60 s, e num monitor de 144 Hz quase nunca, porque na maioria dos quadros
+  de interface o emulador nem rodou. Agora o `ByteChangeTracker` (na `cw_devtools`, testado) guarda
+  **em que frame do emulador** cada byte mudou e mantém o destaque por 60 frames (~1 s),
+  esmaecendo. Como o tempo é o do emulador:
+  - pausado (P), o destaque **congela**: dá para olhar com calma;
+  - avançando um frame (N), ficam acesos **exatamente os bytes que mudaram naquele frame**, a
+    técnica clássica para achar o endereço de uma ação ("apertei ✕ neste frame: o que mudou?").
+- Lição: os testes (corretos) checavam a função de comparação; o problema era de *uso*, e só
+  aparece pensando em como a ferramenta vai ser usada na pesquisa de memória.
+
 ### Para fixar
 
 1. Por que `MemoryWriter` é uma interface separada de `MemoryReader`?

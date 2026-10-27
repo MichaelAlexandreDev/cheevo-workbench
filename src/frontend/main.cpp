@@ -201,7 +201,7 @@ struct MemoryViewerState {
     bool edit_value_initialized = false;
     std::string message;
     bool message_is_error = false;
-    std::vector<cw::MemoryByteSnapshot> previous_visible;
+    cw::ByteChangeTracker changes; // highlights recent changes for ~1 s of emulated frames
     std::vector<cw::MemoryRegionInfo> previous_regions;
     std::string previous_game_path;
 };
@@ -847,7 +847,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
     const cw::MemoryReader& memory = core.memory();
     const std::vector<cw::MemoryRegionInfo> regions = memory.regions();
     if (viewer.previous_regions != regions || viewer.previous_game_path != core.game_path()) {
-        viewer.previous_visible.clear();
+        viewer.changes.clear();
         viewer.previous_regions = regions;
         viewer.previous_game_path = core.game_path();
     }
@@ -858,7 +858,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
 
     if (!core.is_game_loaded() || regions.empty()) {
         ImGui::TextDisabled("Load a game with an exposed memory map to use the viewer.");
-        viewer.previous_visible.clear();
+        viewer.changes.clear();
         ImGui::End();
         return;
     }
@@ -889,7 +889,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
                 viewer.has_selection = true;
                 viewer.edit_value_initialized = false;
                 viewer.scroll_to_address = regions[i].start;
-                viewer.previous_visible.clear();
+                viewer.changes.clear();
                 viewer.message.clear();
             }
             if (selected) {
@@ -927,7 +927,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
                 viewer.has_selection = true;
                 viewer.edit_value_initialized = false;
                 viewer.scroll_to_address = address;
-                viewer.previous_visible.clear();
+                viewer.changes.clear();
                 viewer.message.clear();
             }
         }
@@ -978,15 +978,10 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
                     std::array<uint8_t, 16> bytes{};
                     const size_t read_count =
                         memory.read(row_address, std::span(bytes.data(), row_bytes));
-                    std::vector<cw::MemoryByteSnapshot> row_snapshot;
-                    row_snapshot.reserve(read_count);
                     for (size_t i = 0; i < read_count; ++i) {
-                        row_snapshot.push_back(
+                        current_visible.push_back(
                             {.address = row_address + static_cast<uint32_t>(i), .value = bytes[i]});
-                        current_visible.push_back(row_snapshot.back());
                     }
-                    const std::vector<uint32_t> changed =
-                        cw::changed_memory_bytes(viewer.previous_visible, row_snapshot);
 
                     ImGui::PushID(row);
                     ImGui::Text("0x%06X", row_address);
@@ -998,14 +993,20 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
                         }
 
                         const uint32_t address = row_address + static_cast<uint32_t>(i);
-                        const bool is_changed =
-                            std::find(changed.begin(), changed.end(), address) != changed.end();
+                        // Brightest right after the change, fading over the highlight window.
+                        const std::optional<uint64_t> age =
+                            viewer.changes.frames_since_change(address, core.frame_count());
+                        const bool is_changed = age.has_value();
                         const bool selected =
                             viewer.has_selection && viewer.selected_address == address;
                         char byte_label[4];
                         std::snprintf(byte_label, sizeof(byte_label), "%02X", bytes[i]);
                         if (is_changed) {
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.25f, 1.0f));
+                            const float fade =
+                                1.0f - static_cast<float>(*age) /
+                                           static_cast<float>(viewer.changes.window());
+                            ImGui::PushStyleColor(ImGuiCol_Text,
+                                                  ImVec4(1.0f, 0.75f, 0.25f, 0.35f + 0.65f * fade));
                         }
                         ImGui::PushID(static_cast<int>(i));
                         if (ImGui::Selectable(byte_label, selected, 0, ImVec2(24.0f, 0.0f))) {
@@ -1023,7 +1024,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
                     ImGui::PopID();
                 }
             }
-            viewer.previous_visible = std::move(current_visible);
+            viewer.changes.observe(current_visible, core.frame_count());
         }
     }
     ImGui::EndChild();

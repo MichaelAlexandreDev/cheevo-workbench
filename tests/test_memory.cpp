@@ -208,3 +208,41 @@ TEST_CASE("Visible memory snapshots report changed addresses for the next frame"
     CHECK(cw::changed_memory_bytes(previous, current) == std::vector<uint32_t>{1});
     CHECK(cw::changed_memory_bytes(current, current).empty());
 }
+
+TEST_CASE("A change stays highlighted for the window, counted in emulated frames") {
+    cw::ByteChangeTracker tracker(60);
+    const std::vector<cw::MemoryByteSnapshot> before{{0x100, 1}, {0x101, 7}};
+    const std::vector<cw::MemoryByteSnapshot> after{{0x100, 2}, {0x101, 7}}; // only 0x100 changed
+
+    tracker.observe(before, 10);
+    CHECK_FALSE(tracker.frames_since_change(0x100, 10)); // first sight: remembered, not marked
+    tracker.observe(after, 11);
+    CHECK(tracker.frames_since_change(0x100, 11) == 0u);
+    CHECK_FALSE(tracker.frames_since_change(0x101, 11));
+
+    // Many UI frames without emulated frames (paused, or a 144 Hz display): still lit.
+    for (int ui_frame = 0; ui_frame < 500; ++ui_frame) {
+        tracker.observe(after, 11);
+    }
+    CHECK(tracker.frames_since_change(0x100, 11) == 0u);
+
+    // Fades out after 60 emulated frames.
+    tracker.observe(after, 70);
+    CHECK(tracker.frames_since_change(0x100, 70) == 59u);
+    tracker.observe(after, 71);
+    CHECK_FALSE(tracker.frames_since_change(0x100, 71));
+}
+
+TEST_CASE("Bytes scrolled into view are not reported as changed") {
+    cw::ByteChangeTracker tracker;
+    tracker.observe(std::vector<cw::MemoryByteSnapshot>{{0x000, 5}}, 1);
+    tracker.observe(std::vector<cw::MemoryByteSnapshot>{{0x010, 9}}, 2); // different row
+    CHECK_FALSE(tracker.frames_since_change(0x010, 2));
+    // Scrolling back: 0x000 was forgotten, so it is "first sight" again even if it changed.
+    tracker.observe(std::vector<cw::MemoryByteSnapshot>{{0x000, 6}}, 3);
+    CHECK_FALSE(tracker.frames_since_change(0x000, 3));
+
+    tracker.clear();
+    tracker.observe(std::vector<cw::MemoryByteSnapshot>{{0x000, 7}}, 4);
+    CHECK_FALSE(tracker.frames_since_change(0x000, 4));
+}

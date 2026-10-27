@@ -5,6 +5,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace cw {
@@ -83,6 +84,32 @@ struct MemoryByteSnapshot {
     uint8_t value = 0;
 
     friend bool operator==(const MemoryByteSnapshot&, const MemoryByteSnapshot&) = default;
+};
+
+// Remembers in which emulated frame each visible byte last changed, so a viewer can keep a
+// change highlighted for a while. Comparing only consecutive snapshots would light a byte that
+// changes once (a story flag, say) for a single 1/60 s frame. Time is the core's frame counter,
+// not the UI's: on a 144 Hz display, or while paused, highlights neither shrink nor vanish, and a
+// frame advance leaves exactly that frame's changes lit.
+class ByteChangeTracker {
+  public:
+    explicit ByteChangeTracker(uint64_t highlight_frames = 60) : window_(highlight_frames) {}
+
+    // Records the bytes visible after emulated frame `frame`. A byte that differs from the last
+    // time it was seen is marked as changed at `frame`. Bytes seen for the first time (scrolled
+    // into view) are only remembered, never marked.
+    void observe(std::span<const MemoryByteSnapshot> bytes, uint64_t frame);
+
+    // Frames since `address` last changed, if that was less than the highlight window ago.
+    std::optional<uint64_t> frames_since_change(uint32_t address, uint64_t frame) const;
+
+    uint64_t window() const { return window_; }
+    void clear();
+
+  private:
+    uint64_t window_;
+    std::unordered_map<uint32_t, uint8_t> last_value_;  // only the bytes of the last snapshot
+    std::unordered_map<uint32_t, uint64_t> changed_at_; // pruned once older than the window
 };
 
 // Returns addresses that have a different value in both visible snapshots.

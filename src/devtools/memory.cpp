@@ -307,4 +307,35 @@ MemoryWriteError BufferMemory::write(uint32_t address, std::span<const uint8_t> 
     return MemoryWriteError::None;
 }
 
+void ByteChangeTracker::observe(std::span<const MemoryByteSnapshot> bytes, uint64_t frame) {
+    std::unordered_map<uint32_t, uint8_t> seen;
+    seen.reserve(bytes.size());
+    for (const MemoryByteSnapshot& byte : bytes) {
+        const auto previous = last_value_.find(byte.address);
+        if (previous != last_value_.end() && previous->second != byte.value) {
+            changed_at_[byte.address] = frame;
+        }
+        seen[byte.address] = byte.value;
+    }
+    // Keep only what is visible now, so memory use follows the window, not the 2 MiB of RAM.
+    last_value_ = std::move(seen);
+    std::erase_if(changed_at_, [&](const auto& entry) {
+        return frame >= entry.second && frame - entry.second >= window_;
+    });
+}
+
+std::optional<uint64_t> ByteChangeTracker::frames_since_change(uint32_t address,
+                                                               uint64_t frame) const {
+    const auto found = changed_at_.find(address);
+    if (found == changed_at_.end() || frame < found->second || frame - found->second >= window_) {
+        return std::nullopt;
+    }
+    return frame - found->second;
+}
+
+void ByteChangeTracker::clear() {
+    last_value_.clear();
+    changed_at_.clear();
+}
+
 } // namespace cw
