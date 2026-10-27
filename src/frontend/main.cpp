@@ -1302,8 +1302,12 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer,
                         const bool is_changed = age.has_value();
                         const bool selected =
                             viewer.has_selection && viewer.selected_address == address;
-                        char byte_label[4];
-                        std::snprintf(byte_label, sizeof(byte_label), "%02X", bytes[i]);
+                        // "###byte": ImGui identifies a widget by its label, and this label is the
+                        // byte's value. A byte that changes every frame would get a new identity
+                        // between mouse press and release, and the click would be lost. After
+                        // "###" only the fixed part counts (PushID(i) below keeps it unique).
+                        char byte_label[16];
+                        std::snprintf(byte_label, sizeof(byte_label), "%02X###byte", bytes[i]);
                         if (is_changed) {
                             const float fade =
                                 1.0f - static_cast<float>(*age) /

@@ -195,6 +195,15 @@ do mesmo jeito: a função estática usa o `s_active`.
 - Lição: os testes (corretos) checavam a função de comparação; o problema era de *uso*, e só
   aparece pensando em como a ferramenta vai ser usada na pesquisa de memória.
 
+### No teste do usuário
+
+- **Bytes laranja não eram selecionáveis com o jogo rodando.** No ImGui, um elemento clicável é
+  identificado pelo próprio texto (o "label"). O label de cada byte era o valor dele (`3C`); num
+  byte que muda a cada frame, o elemento ganhava outra identidade entre apertar e soltar o botão
+  do mouse, e o clique se perdia. Pausado (P), o valor parava e o clique funcionava. Correção:
+  `"%02X###byte"`: tudo depois de `###` é a identidade, e o que vem antes é só o texto
+  mostrado. Lição: em ImGui, texto que muda nunca deve ser a identidade de um widget.
+
 ### Para fixar
 
 1. Por que `MemoryWriter` é uma interface separada de `MemoryReader`?
