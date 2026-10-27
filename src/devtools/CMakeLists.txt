@@ -5,6 +5,7 @@ add_library(cw_devtools STATIC
     code_notes.cpp
     file_checks.cpp
     game_hash.cpp
+    logic_tester.cpp
     memory.cpp
     memory_search.cpp
     watch_list.cpp)

@@ -5,7 +5,7 @@ Objetivo da etapa: identificar o jogo e testar lógica de conquistas ao vivo, en
 | Subetapa | Conteúdo | Status |
 |---|---|---|
 | 3.1 | Hash do jogo + game ID digitado | ✅ |
-| 3.2 | Avaliar lógica a cada frame | ⏳ |
+| 3.2 | Avaliar lógica a cada frame | ✅ |
 | 3.3 | Progresso das conquistas junto com o save state | ⏳ |
 
 ---
@@ -110,3 +110,108 @@ configuramos nenhum, então ele usa os padrões.)
 4. Por que o game ID é digitado, e não buscado automaticamente?
 5. Exercício: na página do Twilight Syndrome no site do RA, procure a lista de arquivos/hashes
    suportados (no navegador) e confira se `ca1c2444593a4dd5ce4946070cec61b3` está lá.
+
+---
+
+## 3.2 · Testar lógica de conquista ao vivo
+
+### O que foi feito
+
+- **`LogicTester`** (`src/devtools/include/cw/devtools/logic_tester.hpp`): uma camada fina sobre o
+  `rc_runtime` do rcheevos, o mesmo motor que o RetroAchievements usa para avaliar conquistas.
+  Você adiciona uma lógica (texto), e a cada frame emulado ele diz o que aconteceu: ativou,
+  disparou, pausou, resetou os hits, mudou o valor medido, ou foi desativada por ler um endereço
+  que não existe.
+- **Janela View → Achievement Tester:** título + lógica, tabela com o estado de cada conquista
+  (Waiting / Active / Primed / Triggered / Disabled), o valor medido, botões Re-arm e Remove, e
+  um log de eventos com o número do frame. Quando uma conquista dispara, aparece
+  "Achievement triggered: …" sobre o jogo.
+- **Nada é desbloqueado nem enviado.** As conquistas existem só na memória do programa (ler e
+  gravar o `-User.txt` é o passo 4.2).
+- **Com o Beetle PSX e o seu jogo:** "o byte em `0x00E200` mudou" disparou no frame 101; uma
+  lógica com endereço fora do PS1 (`0x300000`) foi desativada antes de rodar; uma medida mostrou
+  `1 / 255`.
+
+### Conceitos
+
+**Como uma conquista "vive" no rcheevos** (`rc_runtime_types.h`, `RC_TRIGGER_STATE_*`):
+
+| Estado | Significado |
+|---|---|
+| Waiting | Acabou de ser ativada; **não dispara** até a condição ter sido falsa pelo menos uma vez |
+| Active | Pode disparar |
+| Primed | Tudo verdadeiro, menos as condições `Trigger` (`T:`): está "a um passo" |
+| Paused | Uma condição `PauseIf` está verdadeira |
+| Triggered | Disparou |
+| Disabled | Lê um endereço que a memória não tem |
+
+**Por que o "Waiting" existe.** Imagine carregar um save state em que a condição já é verdadeira
+(por exemplo, "está no capítulo 3"). Sem o Waiting, a conquista dispararia na hora, sem você ter
+feito nada. O rcheevos exige ver a condição **falsa** antes, para só disparar quando ela *passa a
+ser* verdadeira.
+
+**Uma avaliação por frame emulado, logo depois do frame.** É assim que o RA avalia: o jogo roda
+um frame, e então as condições são checadas contra a memória daquele frame. Hit counts
+(`.3.` = "verdadeira em 3 frames") contam frames emulados. Por isso o avanço de frame (N) avalia
+exatamente um frame, e pausado (P) nada é avaliado.
+
+**O `peek`.** O rcheevos não lê a memória sozinho: ele chama uma função nossa pedindo "1, 2 ou 4
+bytes a partir do endereço X", e nós respondemos montando os bytes em little-endian a partir da
+`MemoryReader` do 2.1. Os 24 bits são lidos como 4 e mascarados pelo próprio rcheevos.
+
+**Callbacks sem contexto, de novo.** As funções de evento e de validação do `rc_runtime` não
+recebem um ponteiro de contexto. A solução é a mesma do 1.2 (`s_active`): um ponteiro
+`thread_local` aponta para a lista de eventos só durante a chamada.
+
+**Ao trocar ou recarregar o jogo**, o motor é **reconstruído do zero**: todas as conquistas voltam
+para Waiting, os hits são zerados, e os endereços são revalidados contra a memória nova. (Veja na
+revisão abaixo por que um simples `rc_runtime_reset` não bastava.)
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/devtools/include/cw/devtools/logic_tester.hpp`: a interface e os comentários.
+2. `tests/test_logic_tester.cpp`: cada teste conta uma regra do rcheevos (frame exato, Waiting,
+   hits, reset, medida, endereço inválido).
+3. `src/devtools/logic_tester.cpp`: `peek`, `collect_event`, `validate_addresses`.
+4. `src/frontend/main.cpp`: `sync_achievement_tester`, `record_logic_events` e onde `do_frame` é
+   chamado (logo depois de `core.run_frame`).
+5. Referência: `third_party/rcheevos/src/rcheevos/runtime.c` (`rc_runtime_do_frame`) e
+   `trigger.c`.
+
+### O que aprendemos com a referência
+
+- O `rc_runtime` faz todo o trabalho de avaliação (o RALibretro entrega isso ao RAIntegration,
+  que usa o `rc_client`, a camada que também conversa com o servidor; nós usamos só o motor,
+  sem servidor).
+- Reativar uma conquista com a mesma lógica não cria outra: o rcheevos compara um checksum da
+  lógica e apenas a reseta (`rc_runtime_activate_achievement`). É assim que o Re-arm funciona.
+
+### Na revisão do Codex (PR #41)
+
+- **Endereço inválido "grudava" depois de trocar de jogo.** Quando um endereço não pode ser lido,
+  o rcheevos marca a leitura daquele endereço como "não ler mais" (`RC_VALUE_TYPE_NONE`, em
+  `runtime.c`). O `rc_runtime_reset` zera os hits, mas **não desfaz essa marca**. Resultado: num
+  jogo em que o endereço existe, a conquista aparecia como Waiting/Active e **nunca mais lia a
+  memória**, sem avisar. Correção: ao trocar de jogo, o motor é reconstruído do zero (todas as
+  lógicas são lidas de novo); e o Re-arm fica indisponível para conquistas desativadas. Um teste
+  reproduzia o bug antes da correção (a conquista não disparava).
+- **Leitura no fim da memória:** um valor de 2 ou 4 bytes começando no último byte legível lê os
+  bytes que faltam como zero, como o RAIntegration faz; agora há um teste para isso.
+- Lição: ler o código da biblioteca (aqui, o que o `rc_runtime_reset` *não* faz) pega bugs que
+  nenhum teste "do caminho feliz" mostraria.
+
+### Problemas encontrados
+
+- Faltou um include (`rc_runtime_types.h`, onde ficam os estados e a estrutura completa do
+  `rc_trigger_t`); o compilador apontou na hora.
+- Teste de mutação: inverter a ordem dos bytes no `peek` (big-endian) derruba 7 testes.
+
+### Para fixar
+
+1. Por que uma conquista recém-adicionada cuja condição já é verdadeira não dispara?
+2. O que significa `0xH0010=1.3.`? Em quantos frames ela precisa ser verdadeira?
+3. Por que a avaliação acontece depois de cada frame emulado, e não a cada quadro da interface?
+4. O que acontece com os hit counts quando você carrega outro jogo? E por quê?
+5. Exercício: no jogo, abra o Achievement Tester e adicione `d0xH00E200!=0xH00E200` ("o byte
+   mudou desde o frame anterior"). Ele dispara? Aperte Re-arm, pause (P) e avance (N): em qual
+   frame dispara de novo?
