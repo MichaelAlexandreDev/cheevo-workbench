@@ -14,52 +14,95 @@ sincronia. Nenhum core, BIOS ou jogo é distribuído pelo projeto.
 
 ### Mapa do código
 
+Tudo fica em `src/frontend/`. As caixas da esquerda falam com o SDL/OpenGL (só no executável); as
+da direita são lógica pura na biblioteca `cw_frontend`, testada sem janela, sem som e sem ROM.
+
 ```mermaid
 flowchart LR
-    Main[main.cpp: loop, menus e diálogos] --> Core[LibretroCore: callbacks e retro_run]
-    Main --> Session[SessionState: rodando, pausado ou avanço]
-    Session --> Pacer[FramePacer: relógio, áudio e FPS]
-    Core --> Video[GameView: imagem do último frame]
-    Core --> Audio[SdlAudioOutput: fila de áudio]
-    Main --> Recent[RecentFiles: config XDG]
-    Main --> States[SaveStates: slots no diretório de dados]
-    Tests[Testes com core sintético] --> Core
-    Tests --> Session
-    Tests --> Pacer
-    Tests --> Recent
+    subgraph app["executável (SDL3 / OpenGL / ImGui)"]
+        Main["main.cpp<br/>loop, menus, diálogos, atalhos"]
+        View["GameView<br/>textura OpenGL"]
+        Sdl["SdlAudioOutput<br/>fila de áudio SDL3"]
+    end
+    subgraph lib["cw_frontend (lógica pura, testada)"]
+        Core["LibretroCore<br/>dlopen, environment, retro_run"]
+        Opts["CoreOptions"]
+        Frame["video_frame<br/>pitch/formatos → RGBA8"]
+        Input["input_state<br/>teclado/controle → RetroPad"]
+        Pacer["FramePacer + SessionState<br/>quando rodar frames"]
+        State["save_state + SaveStates<br/>RASTATE, slots"]
+        Recent["RecentFiles"]
+    end
+    Main --> Core
+    Main --> Pacer
+    Main --> Input
+    Main --> State
+    Main --> Recent
+    Core --> Opts
+    Core --> Frame
+    Core -- AudioSink --> Sdl
+    Core -- JoypadState --> Input
+    Frame --> View
+    Test["tests/ + core sintético"] -.-> lib
 ```
 
 ### O caminho de um frame
 
-1. O loop recebe eventos SDL. Um callback de diálogo só copia o caminho escolhido para uma fila
-   protegida por mutex; o loop principal aplica o resultado.
-2. ImGui processa os atalhos globais e o estado da sessão.
-3. O front-end mede a fila de áudio uma vez. `SessionState` pede zero frames pausado, um no avanço,
-   ou delega ao `FramePacer` enquanto roda.
-4. `LibretroCore::run_frame` chama `retro_run`; os callbacks atualizam o vídeo e coletam o áudio.
-   Num avanço, o áudio daquele frame é descartado.
-5. O `GameView` atualiza a imagem, os indicadores e as janelas ImGui são desenhados, e o SDL
-   apresenta o resultado.
+Uma volta do loop principal (`main.cpp`), em ordem:
+
+1. **Eventos SDL:** fechar janela, controle conectado/desconectado, perda de foco (solta todos os
+   botões). O resultado de um diálogo de arquivo chega por uma fila com mutex: o callback roda em
+   outra thread e nunca toca no core.
+2. **Input:** o estado *atual* do teclado e dos controles vira uma máscara de 16 botões do RetroPad
+   (`JoypadState`). Lido a cada volta, não por eventos: nenhum botão fica preso.
+3. **Atalhos:** P, N, Ctrl+R, Shift+F1–F4 / F1–F4 (com Shift e Ctrl fora do input do jogo).
+4. **Quantos frames rodar:** a fila de áudio é lida uma vez; pausado = 0, avanço = exatamente 1,
+   rodando = o `FramePacer` decide pela fila de áudio (ou pelo relógio, sem áudio).
+5. **`retro_run()` no core**, e lá dentro o core chama de volta:
+   - `input_state` → responde com a máscara do passo 2;
+   - `video_refresh` → `convert_to_rgba` respeitando o pitch; `NULL` = repetir o frame anterior;
+   - `audio_sample_batch` → amostras acumuladas e entregues ao `AudioSink` no fim do frame.
+6. **Imagem:** se chegou frame novo (o `serial` mudou), o `GameView` envia para a textura e a
+   desenha com a proporção certa no centro do dock, atrás das janelas.
+7. **Interface:** menus, janela Status, avisos ("Saved slot 1", "Paused"); `SDL_GL_SwapWindow`
+   mostra tudo.
 
 ### Conceitos mais importantes
 
-- [Carregar um core e atender callbacks libretro (1.2)](#12--carregar-o-core-libretro).
-- [Testar sem ROM usando um core sintético (1.2b)](#12b--core-de-teste-sintetico).
-- [Converter e apresentar frames de vídeo (1.3)](#13--vídeo).
-- [Sincronizar áudio e cadência de frames (1.4)](#14--áudio-e-ritmo-dos-frames).
-- [Separar input do jogo dos atalhos da interface (1.5)](#15--input-de-teclado-e-controle).
-- [Validar e persistir save states (1.6)](#16--save-states).
-- [Manter callbacks de diálogo fora do estado do core (1.7)](#17--menus-e-controles-da-sessão).
+- [O contrato libretro: ordem das chamadas e environment callback (1.2)](#12--carregar-o-core-libretro)
+- [Testar sem ROM: core sintético, ASan e teste de mutação (1.2b)](#12b--core-de-teste-sintético)
+- [Pitch, formatos de pixel e frames duplicados (1.3)](#13--vídeo)
+- [O áudio como relógio da emulação (1.4)](#14--áudio-e-ritmo-dos-frames)
+- [Input por estado (polling) e conflitos com a interface (1.5)](#15--input-de-teclado-e-controle)
+- [Nunca confiar em tamanhos vindos de arquivo; escrita atômica (1.6)](#16--save-states)
+- [Callbacks em outra thread: só passar dados adiante (1.7)](#17--menus-e-controles-da-sessão)
 
 ### Lições das revisões
 
-- Uma callback SDL assíncrona pode rodar em outra thread: copiar o resultado para uma fila não
-  bloqueante e tocar no core/ImGui somente no loop principal.
-- Uma leitura da fila de áudio por loop evita que o Status altere o ritmo que o pacer está usando.
-- Uma janela de cinco segundos reduz as oscilações do FPS medido; pausas não entram nessa média.
-- O core sintético permite conferir reset, áudio e save states sem incluir dados de jogo.
-- Os testes e o sanitizador encontraram problemas de contrato e limites; o formato dos states foi
-  mantido compatível com o RALibretro após conferir a implementação de referência.
+Os bugs que os testes, os sanitizadores e as revisões cruzadas (Claude ⇄ Codex) pegaram antes de
+chegar até você:
+
+| Onde | O bug | Quem pegou | A lição |
+|---|---|---|---|
+| 1.1 | `SCPH1001.BIN` escapava do `.gitignore` (padrões diferenciam maiúsculas) | Claude, antes do 1º commit | confira com `git status` / `git check-ignore -v` |
+| 1.1 | Sem `HOME`, gravava configuração na pasta atual | Codex | nunca escrever onde o programa foi aberto |
+| 1.2 | Operador vírgula num `if` passava sempre | Claude, ao reler | escreva condições em passos |
+| 1.3 (#26) | `largura × altura × 4` dava a volta no `size_t` → escrita fora do buffer | Codex | limite as entradas *antes* da conta |
+| 1.4 (#27) | "O jogo está 3% lento" — era ruído da medição de 1 s | Claude, medindo de novo | meça direito antes de concluir |
+| 1.5 (#28) | Teclado do jogo morria após clicar numa janela (navegação do ImGui) | Claude, lendo o ImGui | teste de unidade não substitui usar o programa |
+| 1.6 (#29) | Shift+F1 (salvar) também apertava Select | Codex | atalhos e controles do jogo competem pelo teclado |
+| 1.6 (#29) | `RASTATE` cortado lido como state "cru"; quirks prometidas sem garantia | Codex | prometa só o que você consegue cumprir |
+| 1.7 (#30) | Ctrl+R (reset) também apertaria R2 | Codex, sozinho | idem 1.6 |
+
+Também valeu: **teste de mutação** (quebrar o código de propósito e ver o teste falhar) mostrou em
+todas as subetapas que os testes realmente testavam; e **discordar de uma revisão com motivo**
+(PR #29, `WantTextInput`) é tão importante quanto aceitar.
+
+### Números da etapa
+
+9 subetapas (1.1–1.7 + 1.2b): 1.1–1.2b revisadas nos arquivos, antes do GitHub, e 1.3–1.7 em
+5 PRs com revisão cruzada (#26–#30); 49 casos de teste / 2845 verificações, todos sem
+ROM; build sem nenhum warning e limpo no AddressSanitizer, UBSan e LeakSanitizer.
 
 ### Prova da etapa
 
@@ -71,6 +114,10 @@ flowchart LR
 5. Por que o histórico é configuração XDG, enquanto os save states ficam no diretório de dados?
 6. Que partes do caminho de um frame são testadas pelo core sintético e quais exigem o teste manual
    com o Beetle PSX?
+7. Siga um aperto do botão ✕ (tecla Z) do teclado até o jogo: por quais arquivos e funções ele passa?
+8. Três lugares desta etapa validam um tamanho vindo de fora antes de usá-lo. Quais são, e o que
+   aconteceria sem cada validação?
+9. Por que o áudio, e não o vsync do monitor, decide a velocidade do jogo?
 
 | Subetapa | Conteúdo | Status |
 |---|---|---|
