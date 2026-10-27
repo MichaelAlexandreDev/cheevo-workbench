@@ -3,6 +3,7 @@
 
 #include "cw/devtools/code_notes.hpp"
 #include "cw/devtools/game_hash.hpp"
+#include "cw/devtools/logic_tester.hpp"
 #include "cw/devtools/memory_search.hpp"
 #include "cw/devtools/watch_list.hpp"
 #include "frame_pacer.hpp"
@@ -35,6 +36,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -2065,11 +2067,190 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
     ImGui::End();
 }
 
+// --- Achievement tester (step 3.2) ----------------------------------------------------------
+
+struct LoggedLogicEvent {
+    cw::LogicEvent event;
+    std::string title;
+};
+
+struct AchievementTesterUi {
+    bool open = false;
+    std::string title;
+    std::string logic;
+    std::string add_error;
+    std::deque<LoggedLogicEvent> log; // newest first, capped
+    // The game session the tester was last reset and validated for: a new game (or the same
+    // one reloaded) must not inherit hit counts counted against the previous memory.
+    std::optional<uint64_t> synced_generation;
+};
+
+constexpr size_t kLogicLogSize = 200;
+
+std::string achievement_title(const cw::LogicTester& tester, uint32_t id) {
+    for (const cw::TestedAchievement& a : tester.achievements()) {
+        if (a.id == id) {
+            return a.title.empty() ? "#" + std::to_string(id) : a.title;
+        }
+    }
+    return "#" + std::to_string(id);
+}
+
+void record_logic_events(const std::vector<cw::LogicEvent>& events, const cw::LogicTester& tester,
+                         AchievementTesterUi& state, Notice& notice) {
+    for (const cw::LogicEvent& event : events) {
+        const std::string title = achievement_title(tester, event.id);
+        if (event.kind == cw::LogicEventKind::Triggered) {
+            show_notice(notice, "Achievement triggered: " + title, true);
+        } else if (event.kind == cw::LogicEventKind::Disabled) {
+            char address[16];
+            std::snprintf(address, sizeof(address), "0x%06X", static_cast<uint32_t>(event.value));
+            show_notice(notice, title + " disabled: address " + address + " cannot be read", false);
+        }
+        state.log.push_front({.event = event, .title = title});
+        if (state.log.size() > kLogicLogSize) {
+            state.log.pop_back();
+        }
+    }
+}
+
+// Resets and revalidates when another game session starts (or the first one does).
+void sync_achievement_tester(cw::LogicTester& tester, AchievementTesterUi& state, const UiState& ui,
+                             const cw::LibretroCore& core, Notice& notice) {
+    if (!core.is_game_loaded() || state.synced_generation == ui.game_session_generation) {
+        return;
+    }
+    state.synced_generation = ui.game_session_generation;
+    tester.reset();
+    record_logic_events(tester.validate_addresses(core.memory(), core.frame_count()), tester, state,
+                        notice);
+}
+
+ImVec4 logic_state_color(cw::LogicState state) {
+    switch (state) {
+    case cw::LogicState::Triggered:
+        return ImVec4(0.35f, 0.9f, 0.4f, 1.0f);
+    case cw::LogicState::Primed:
+        return ImVec4(1.0f, 0.85f, 0.3f, 1.0f);
+    case cw::LogicState::Disabled:
+        return ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+    case cw::LogicState::Paused:
+    case cw::LogicState::Waiting:
+        return ImVec4(0.65f, 0.65f, 0.7f, 1.0f);
+    default:
+        return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    }
+}
+
+void draw_achievement_tester(cw::LogicTester& tester, AchievementTesterUi& state,
+                             const cw::LibretroCore& core, Notice& notice) {
+    if (!state.open) {
+        return;
+    }
+    if (!ImGui::Begin("Achievement Tester", &state.open)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextWrapped("Type achievement logic and watch it live. Nothing is unlocked or sent "
+                       "anywhere: this only evaluates the conditions every emulated frame.");
+    ImGui::SetNextItemWidth(220.0f);
+    input_text_string("Title", state.title);
+    ImGui::SetNextItemWidth(-80.0f);
+    const bool submitted =
+        input_text_string("Logic", state.logic, ImGuiInputTextFlags_EnterReturnsTrue);
+    if (ImGui::Button("Add") || submitted) {
+        std::string error;
+        if (tester.add(state.title, state.logic, error)) {
+            state.add_error.clear();
+            state.title.clear();
+            state.logic.clear();
+            if (core.is_game_loaded()) {
+                record_logic_events(tester.validate_addresses(core.memory(), core.frame_count()),
+                                    tester, state, notice);
+            }
+        } else {
+            state.add_error = error;
+        }
+    }
+    if (!state.add_error.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", state.add_error.c_str());
+    }
+    if (!core.is_game_loaded()) {
+        ImGui::TextDisabled("No game loaded: achievements are evaluated once a game runs.");
+    }
+
+    std::optional<uint32_t> rearm_id;
+    std::optional<uint32_t> remove_id;
+    if (ImGui::BeginTable("achievements", 5,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
+                              ImGuiTableFlags_Resizable)) {
+        ImGui::TableSetupColumn("Title");
+        ImGui::TableSetupColumn("State");
+        ImGui::TableSetupColumn("Measured");
+        ImGui::TableSetupColumn("Logic");
+        ImGui::TableSetupColumn("");
+        ImGui::TableHeadersRow();
+        for (const cw::TestedAchievement& a : tester.achievements()) {
+            ImGui::PushID(static_cast<int>(a.id));
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(a.title.empty() ? "(untitled)" : a.title.c_str());
+            ImGui::TableSetColumnIndex(1);
+            const cw::LogicState logic_state = tester.state(a.id);
+            ImGui::TextColored(logic_state_color(logic_state), "%s",
+                               cw::logic_state_name(logic_state));
+            ImGui::TableSetColumnIndex(2);
+            if (const auto measured = tester.measured(a.id)) {
+                ImGui::Text("%u / %u", measured->first, measured->second);
+            } else {
+                ImGui::TextDisabled("-");
+            }
+            ImGui::TableSetColumnIndex(3);
+            ImGui::TextUnformatted(a.logic.c_str());
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", a.logic.c_str());
+            }
+            ImGui::TableSetColumnIndex(4);
+            if (ImGui::SmallButton("Re-arm")) {
+                rearm_id = a.id;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Remove")) {
+                remove_id = a.id;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    // Applied after the table loop, which iterates the same list.
+    if (rearm_id) {
+        tester.rearm(*rearm_id);
+    }
+    if (remove_id) {
+        tester.remove(*remove_id);
+    }
+
+    ImGui::SeparatorText("Events (newest first)");
+    if (ImGui::BeginChild("log", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+        for (const LoggedLogicEvent& entry : state.log) {
+            ImGui::Text("frame %llu  %s  %s", static_cast<unsigned long long>(entry.event.frame),
+                        cw::logic_event_name(entry.event.kind), entry.title.c_str());
+            if (entry.event.kind == cw::LogicEventKind::Progress) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d)", entry.event.value);
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
 void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     cw::SaveStates& save_states, cw::RecentFiles& recent, cw::GameView& game_view,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config,
                     MemoryViewerState& memory_viewer, MemorySearchState& memory_search,
-                    WatchListUiState& watch_list, CodeNotesUiState& code_notes) {
+                    WatchListUiState& watch_list, CodeNotesUiState& code_notes,
+                    AchievementTesterUi& achievement_tester) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -2157,6 +2338,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         ImGui::MenuItem("Memory Search", nullptr, &memory_search.open);
         ImGui::MenuItem("Watch List", nullptr, &watch_list.open);
         ImGui::MenuItem("Code Notes", nullptr, &code_notes.open);
+        ImGui::MenuItem("Achievement Tester", nullptr, &achievement_tester.open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
         ImGui::EndMenu();
     }
@@ -2387,6 +2569,8 @@ int main(int argc, char** argv) {
     code_notes_ui.ra_cache_dir = load_ra_cache_dir(config);
     code_notes_ui.ra_cache_path_input = code_notes_ui.ra_cache_dir.string();
     cw::WatchList watch_list;
+    cw::LogicTester logic_tester;
+    AchievementTesterUi achievement_tester_ui;
     ui.system_dir = launch->system_dir;
     const std::string load_error = load_from_options(core, *launch);
     ui.status_message = load_error;
@@ -2455,9 +2639,13 @@ int main(int argc, char** argv) {
             const size_t frames_due =
                 ui.session.frames_to_run(frame_pacer, now, queued_audio_seconds);
             const bool discard_audio = ui.session.frame_advance_pending();
+            sync_achievement_tester(logic_tester, achievement_tester_ui, ui, core, notice);
             for (size_t i = 0; i < frames_due; ++i) {
                 core.run_frame(discard_audio);
                 ++frames_run;
+                // Evaluated once per emulated frame, right after it ran, as RetroAchievements does.
+                record_logic_events(logic_tester.do_frame(core.memory(), core.frame_count()),
+                                    logic_tester, achievement_tester_ui, notice);
                 if (!audio_output.available() &&
                     frame_pacer.mode() == cw::FramePacer::Mode::Audio) {
                     frame_pacer.set_audio_available(false, cw::FramePacer::Clock::now());
@@ -2492,12 +2680,14 @@ int main(int argc, char** argv) {
             draw_notice(notice, background, central->Pos, max);
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
-                       memory_viewer, memory_search, watch_list_ui, code_notes_ui);
+                       memory_viewer, memory_search, watch_list_ui, code_notes_ui,
+                       achievement_tester_ui);
         draw_memory_viewer(core, memory_viewer, watch_list, code_notes, code_notes_ui);
         draw_memory_search(ui, core, memory_search, memory_viewer, watch_list, code_notes);
         draw_watch_list(watch_list, watch_list_ui, memory_viewer, core.memory(), core.frame_count(),
                         code_notes);
         draw_code_notes_window(code_notes, code_notes_ui, config, memory_viewer, core.memory());
+        draw_achievement_tester(logic_tester, achievement_tester_ui, core, notice);
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);
         draw_game_identity(ui, game_ids, notice);
