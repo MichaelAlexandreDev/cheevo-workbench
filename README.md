@@ -82,6 +82,10 @@ Cross/Circle/Square/Triangle.
 Save states: **Shift+F1–F4** saves slot 1–4, **F1–F4** loads it. States are stored in
 `~/.local/share/cheevo-workbench/states/` in RALibretro's `RASTATE` format.
 
+Emulation: **P** pauses or resumes, **N** advances exactly one frame while paused, and **Ctrl+R**
+resets the game. Frame-advance audio is discarded. Recent core/content pairs are stored in
+`~/.config/cheevo-workbench/recent-files.txt`.
+
 Typing into a text field of the tool does not reach the game. Without a working audio server the
 app may wait at startup; `SDL_AUDIO_DRIVER=dummy` runs it without sound.
 

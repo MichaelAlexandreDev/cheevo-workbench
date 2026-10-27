@@ -63,7 +63,7 @@ std::span<const GamepadBinding> gamepad_bindings() {
     return kGamepadBindings;
 }
 
-uint16_t map_keyboard_state(std::span<const bool> keys) {
+uint16_t map_keyboard_state(std::span<const bool> keys, bool control_pressed) {
     auto held = [&keys](SDL_Scancode key) {
         const auto index = static_cast<size_t>(key);
         return index < keys.size() && keys[index];
@@ -74,6 +74,9 @@ uint16_t map_keyboard_state(std::span<const bool> keys) {
                                    held(SDL_SCANCODE_F3) || held(SDL_SCANCODE_F4);
     uint16_t result = 0;
     for (const KeyboardBinding& binding : kKeyboardBindings) {
+        if (control_pressed && (binding.key == SDL_SCANCODE_R || binding.key == SDL_SCANCODE_Q)) {
+            continue; // Ctrl+R and Ctrl+Q are frontend shortcuts, not game buttons.
+        }
         const bool is_modifier =
             binding.key == SDL_SCANCODE_LSHIFT || binding.key == SDL_SCANCODE_RSHIFT;
         if (held(binding.key) && !(is_modifier && state_hotkey_held)) {

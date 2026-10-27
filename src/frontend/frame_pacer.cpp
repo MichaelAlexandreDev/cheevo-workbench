@@ -38,6 +38,10 @@ bool FramePacer::set_paused(bool paused, TimePoint now) {
     }
     paused_ = paused;
     reset_clock(now);
+    // Time spent paused must not drag the next measured-FPS sample down.
+    measurement_initialized_ = true;
+    measurement_start_ = now;
+    measured_frame_count_ = 0;
     return paused;
 }
 
@@ -102,6 +106,9 @@ size_t FramePacer::frames_to_run(TimePoint now, double queued_audio_seconds) {
 }
 
 bool FramePacer::record_frames(size_t frames, TimePoint now) {
+    if (paused_) {
+        return false;
+    }
     if (!measurement_initialized_) {
         measurement_initialized_ = true;
         measurement_start_ = now;
@@ -109,7 +116,7 @@ bool FramePacer::record_frames(size_t frames, TimePoint now) {
     measured_frame_count_ += frames;
 
     const double elapsed = std::chrono::duration<double>(now - measurement_start_).count();
-    if (elapsed >= 1.0) {
+    if (elapsed >= 5.0) {
         measured_fps_ = static_cast<double>(measured_frame_count_) / elapsed;
         measured_frame_count_ = 0;
         measurement_start_ = now;

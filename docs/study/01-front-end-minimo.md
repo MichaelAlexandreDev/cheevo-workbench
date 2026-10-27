@@ -1,7 +1,76 @@
 # 01 · Etapa 1: front-end mínimo
 
 Objetivo da etapa: o Twilight Syndrome rodando na ferramenta (core libretro, vídeo, áudio, input,
-save states).
+save states e controles da sessão).
+
+## Resumo da etapa
+
+### O que a etapa entregou
+
+A ferramenta abre um core libretro e um jogo pela linha de comando ou pelos menus, mantém uma lista
+de recentes, roda e pausa a emulação, avança um frame por vez, reseta o jogo e salva/carrega estados.
+O vídeo e o áudio passam pelo front-end SDL3; a janela de Status mostra o estado da sessão e a
+sincronia. Nenhum core, BIOS ou jogo é distribuído pelo projeto.
+
+### Mapa do código
+
+```mermaid
+flowchart LR
+    Main[main.cpp: loop, menus e diálogos] --> Core[LibretroCore: callbacks e retro_run]
+    Main --> Session[SessionState: rodando, pausado ou avanço]
+    Session --> Pacer[FramePacer: relógio, áudio e FPS]
+    Core --> Video[GameView: imagem do último frame]
+    Core --> Audio[SdlAudioOutput: fila de áudio]
+    Main --> Recent[RecentFiles: config XDG]
+    Main --> States[SaveStates: slots no diretório de dados]
+    Tests[Testes com core sintético] --> Core
+    Tests --> Session
+    Tests --> Pacer
+    Tests --> Recent
+```
+
+### O caminho de um frame
+
+1. O loop recebe eventos SDL. Um callback de diálogo só copia o caminho escolhido para uma fila
+   protegida por mutex; o loop principal aplica o resultado.
+2. ImGui processa os atalhos globais e o estado da sessão.
+3. O front-end mede a fila de áudio uma vez. `SessionState` pede zero frames pausado, um no avanço,
+   ou delega ao `FramePacer` enquanto roda.
+4. `LibretroCore::run_frame` chama `retro_run`; os callbacks atualizam o vídeo e coletam o áudio.
+   Num avanço, o áudio daquele frame é descartado.
+5. O `GameView` atualiza a imagem, os indicadores e as janelas ImGui são desenhados, e o SDL
+   apresenta o resultado.
+
+### Conceitos mais importantes
+
+- [Carregar um core e atender callbacks libretro (1.2)](#12--carregar-o-core-libretro).
+- [Testar sem ROM usando um core sintético (1.2b)](#12b--core-de-teste-sintetico).
+- [Converter e apresentar frames de vídeo (1.3)](#13--vídeo).
+- [Sincronizar áudio e cadência de frames (1.4)](#14--áudio-e-ritmo-dos-frames).
+- [Separar input do jogo dos atalhos da interface (1.5)](#15--input-de-teclado-e-controle).
+- [Validar e persistir save states (1.6)](#16--save-states).
+- [Manter callbacks de diálogo fora do estado do core (1.7)](#17--menus-e-controles-da-sessão).
+
+### Lições das revisões
+
+- Uma callback SDL assíncrona pode rodar em outra thread: copiar o resultado para uma fila não
+  bloqueante e tocar no core/ImGui somente no loop principal.
+- Uma leitura da fila de áudio por loop evita que o Status altere o ritmo que o pacer está usando.
+- Uma janela de cinco segundos reduz as oscilações do FPS medido; pausas não entram nessa média.
+- O core sintético permite conferir reset, áudio e save states sem incluir dados de jogo.
+- Os testes e o sanitizador encontraram problemas de contrato e limites; o formato dos states foi
+  mantido compatível com o RALibretro após conferir a implementação de referência.
+
+### Prova da etapa
+
+1. Como um caminho escolhido no diálogo sai de uma thread SDL e chega ao core sem uma callback tocar
+   no ImGui?
+2. Por que o avanço de frame é um modo da sessão e por que o pacer continua marcado como pausado?
+3. Em que ponto o áudio do frame avançado é descartado?
+4. Como um slot é associado ao jogo e ao core corretos?
+5. Por que o histórico é configuração XDG, enquanto os save states ficam no diretório de dados?
+6. Que partes do caminho de um frame são testadas pelo core sintético e quais exigem o teste manual
+   com o Beetle PSX?
 
 | Subetapa | Conteúdo | Status |
 |---|---|---|
@@ -12,7 +81,7 @@ save states).
 | 1.4 | Áudio e sincronia | ✅ |
 | 1.5 | Input | ✅ |
 | 1.6 | Save states | ✅ |
-| 1.7 | Menu, abrir arquivos, pausar, avançar frame | ⏳ |
+| 1.7 | Menu, abrir arquivos, pausar, avançar frame | ✅ |
 
 ---
 
@@ -811,3 +880,90 @@ válidos dele.
 5. Por que zeramos os bits de quirk que não conhecemos?
 6. Exercício: no jogo, salve no slot 1 (Shift+F1), ande até outra sala, carregue (F1). Depois
    feche o programa, abra de novo e carregue o slot 1: funciona? Por quê (dica: quirks do Beetle)?
+
+## 1.7 · Menus e controles da sessão
+
+### O que foi feito
+
+- Os menus **File**, **Emulation** e **States** abrem core e jogo, mostram os dez pares recentes,
+  fecham o conteúdo, pausam/retomam, resetam e oferecem avanço de um frame e os quatro slots.
+- Os diálogos SDL3 filtram cores `.so` e, para jogos, as extensões informadas pelo core. O callback
+  copia somente o resultado para uma fila; o loop principal abre o core/jogo. Cancelar não altera a
+  sessão.
+- `RecentFiles` persiste em `$XDG_CONFIG_HOME/cheevo-workbench/recent-files.txt` (ou
+  `~/.config/cheevo-workbench/recent-files.txt`). O cabeçalho é
+  `# cheevo-workbench recent files v1`; cada linha tem o caminho do core e o do jogo em hexadecimal,
+  separados por tab. `-` no segundo campo representa core sem jogo. Lista ausente ou inválida vira
+  vazia; duplicatas sobem para o topo e a lista fica limitada a dez itens.
+- `SessionState` representa rodando, pausado e avanço de frame. O avanço agenda exatamente um
+  `retro_run`, descarta o áudio desse frame e retorna a pausado. Pausado, o jogo não roda e o áudio
+  enfileirado é limpo; a imagem atual e o indicador **Paused** ficam visíveis.
+- `LibretroCore::reset()` chama `retro_reset()` sem fechar o core/jogo e limpa áudio. O histórico
+  da linha de comando também entra na lista de recentes.
+- Os atalhos globais são **P** (pausar/retomar), **N** (avançar enquanto pausado), **Ctrl+R**
+  (reset), **Shift+F1–F4** (salvar) e **F1–F4** (carregar). Ctrl+R e o Ctrl+Q de sair não enviam
+  R2/L ao jogo.
+- O FPS medido usa janelas de cinco segundos. A fila de áudio é lida uma vez por volta do loop, e o
+  mesmo número é usado pelo pacer e pela janela Status.
+
+### Conceitos
+
+**Um diálogo SDL é assíncrono.** `SDL_ShowOpenFileDialog` retorna antes da escolha e seu callback
+pode rodar em outra thread. Os filtros e os dados da requisição ficam vivos até a resposta. A
+callback copia o caminho/erro para uma fila protegida por mutex e sinaliza conclusão; só o loop
+principal altera a sessão, os menus ou o ImGui. Se o usuário cancela, o caminho é vazio e nenhuma
+operação de load é chamada.
+
+**Pausa e avanço são modos da sessão, não cadências do relógio.** A sessão delega a quantidade de
+frames ao `FramePacer` enquanto roda. Pausada, retorna zero. No modo de avanço, retorna um
+independentemente do tempo e volta a pausado depois de `retro_run`. O pacer permanece pausado para
+que não haja um segundo frame automático nem áudio do frame único.
+
+**Uma média precisa de tempo suficiente.** Com uma janela de um segundo, pequenos atrasos de UI e
+até três frames por volta apareciam como oscilações grandes. Agora o contador espera cinco segundos
+para atualizar a taxa. Entrar ou sair da pausa reinicia a janela, mas mantém visível a última taxa
+calculada.
+
+**O histórico não é uma lista de caminhos separados por delimitadores.** Um caminho Linux pode
+conter espaço, tab ou quebra de linha. Os bytes nativos de cada caminho viram pares hexadecimais;
+assim, tab separa os dois campos sem ambiguidade. O leitor limita o tamanho do arquivo, valida os
+registros e descarta a lista inteira se encontrar corrupção.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/frontend/main.cpp`: `DialogQueue`, `handle_dialog_results`, menus e o caminho de um frame.
+2. `src/frontend/recent_files.hpp` e `.cpp`: formato, limite, leitura e gravação da lista.
+3. `src/frontend/session_state.hpp` e `.cpp`: modos de execução e avanço único.
+4. `src/frontend/frame_pacer.cpp`: janela de FPS, pausa e pacing por áudio/relógio.
+5. `src/frontend/libretro_core.cpp`: `reset()` e `run_frame(discard_audio)`.
+6. `tests/test_recent_files.cpp`, `tests/test_session_state.cpp`, `tests/test_frame_pacer.cpp` e
+   `tests/test_libretro_core.cpp`: cobertura com caminhos temporários, relógio falso e core sintético.
+
+### O que aprendemos com a referência
+
+- Em `reference/RALibretro/src/Application.cpp` e `KeyBinds.cpp`, conferimos a organização de
+  comandos de emulação, recentes e atalhos dos slots. A implementação aqui usa menus ImGui e os
+  diálogos SDL3, sem copiar código do RALibretro.
+- Mantivemos o padrão familiar de slots: Shift+F1–F4 salva e F1–F4 carrega. Os novos atalhos P,
+  N e Ctrl+R evitam as teclas mapeadas para o RetroPad; para Ctrl+R/Ctrl+Q, a tecla de jogo é
+  suprimida enquanto Ctrl está pressionado.
+
+### Problemas encontrados
+
+- O primeiro build revelou que o helper chamado `is_directory` colidia por ADL com
+  `std::filesystem::is_directory`; renomeá-lo para `directory_exists` eliminou a ambiguidade.
+- Ao ampliar o teste do FPS para dez segundos, as expectativas de contagem ainda representavam
+  dois segundos. Atualizamos o cálculo para acompanhar a duração maior da janela.
+- O teste real com Beetle PSX encontrou a BIOS japonesa e carregou o Twilight Syndrome. A
+  interface permaneceu aberta por doze segundos e o core executou 698 frames. O roteiro abaixo no
+  rascunho do PR cobre as interações de menu e diálogo que dependem de clique manual.
+
+### Para fixar
+
+1. Faça um pedido no menu Open Game e cancele. Por que não é preciso restaurar o estado anterior?
+2. Que objeto mantém os filtros SDL válidos enquanto o diálogo nativo está aberto?
+3. O que `SessionState::frames_to_run()` devolve em cada um dos três modos?
+4. Por que o frame avançado usa `run_frame(true)` e ainda atualiza a imagem?
+5. Como um arquivo de recentes corrompido evita tanto travar quanto carregar só metade dos pares?
+6. Rode com `--core` e jogo pela linha de comando, feche o conteúdo e reabra pelo menu Recent. O que
+   fica persistido em configuração e o que fica em dados?

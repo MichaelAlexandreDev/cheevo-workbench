@@ -53,6 +53,7 @@ LibretroCore::~LibretroCore() {
 
 bool LibretroCore::load(const std::filesystem::path& core_path, Directories dirs,
                         std::string& error) {
+    error.clear();
     if (s_active) {
         error = "Another core is already loaded";
         return false;
@@ -160,8 +161,10 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     }
 
     if (!api_.load_game(&game)) {
-        error = "The core could not load " + game_path_ + " (see the core log above)";
+        error = "The core rejected " + game_path_ +
+                "; check that this core supports the file format (see the core log above)";
         game_data_.clear();
+        game_path_.clear();
         return false;
     }
     game_loaded_ = true;
@@ -201,12 +204,19 @@ void LibretroCore::unload() {
         s_active = nullptr;
     }
     api_ = {};
+    core_path_.clear();
+    system_dir_.clear();
+    save_dir_.clear();
+    game_path_.clear();
     game_data_.clear();
     options_.clear();
     reported_unsupported_.clear();
+    system_info_ = {};
     pixel_format_ = RETRO_PIXEL_FORMAT_0RGB1555;
     av_info_ = {};
     serialization_quirks_ = 0;
+    frame_count_ = 0;
+    audio_buffer_failed_ = false;
     clear_frame();
 }
 
@@ -219,13 +229,27 @@ void LibretroCore::clear_frame() {
     reported_bad_frame_ = false;
 }
 
-void LibretroCore::run_frame() {
+void LibretroCore::reset() {
+    if (!game_loaded_) {
+        return;
+    }
+    audio_samples_.clear();
+    audio_buffer_failed_ = false;
+    api_.reset();
+    // The reset may invoke callbacks in a nonconforming core; those samples belong to no frame.
+    audio_samples_.clear();
+    if (audio_sink_) {
+        audio_sink_->clear();
+    }
+}
+
+void LibretroCore::run_frame(bool discard_audio) {
     if (game_loaded_) {
         audio_samples_.clear();
         audio_buffer_failed_ = false;
         api_.run();
         ++frame_count_;
-        if (audio_sink_ && !audio_buffer_failed_) {
+        if (!discard_audio && audio_sink_ && !audio_buffer_failed_) {
             audio_sink_->write(audio_samples_.data(), audio_samples_.size() / 2);
         }
         audio_samples_.clear();

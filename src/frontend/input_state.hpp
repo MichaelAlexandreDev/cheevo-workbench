@@ -31,7 +31,7 @@ struct GamepadSnapshot {
 
 std::span<const KeyboardBinding> keyboard_bindings();
 std::span<const GamepadBinding> gamepad_bindings();
-uint16_t map_keyboard_state(std::span<const bool> keys);
+uint16_t map_keyboard_state(std::span<const bool> keys, bool control_pressed = false);
 uint16_t map_gamepad_state(const GamepadSnapshot& state);
 bool keyboard_input_allowed(bool window_focused, bool imgui_wants_keyboard);
 uint64_t gamepad_input_source(SDL_JoystickID instance_id);
