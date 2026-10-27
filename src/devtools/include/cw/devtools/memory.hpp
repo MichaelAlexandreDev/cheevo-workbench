@@ -72,6 +72,10 @@ unsigned memory_value_byte_count(MemoryValueSize size);
 uint32_t memory_value_max(MemoryValueSize size);
 std::optional<uint32_t> decode_memory_value(const MemoryReader& memory, uint32_t address,
                                             MemoryValueSize size, ByteOrder order);
+// Same decoding from bytes already copied out of memory (exactly memory_value_byte_count(size)
+// of them, starting at the value's address). Used by bulk readers such as the memory search.
+std::optional<uint32_t> decode_memory_bytes(std::span<const uint8_t> bytes, MemoryValueSize size,
+                                            ByteOrder order);
 
 enum class MemoryValueEncodeError { None, TooLarge, InvalidBuffer };
 

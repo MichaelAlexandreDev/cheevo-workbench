@@ -29,7 +29,7 @@ Status legend: ✅ done · 🟡 in progress · ⏳ planned · 🔒 blocked
 |---|---|---|---|
 | 2.1 | Memory access: `SET_MEMORY_MAPS` + `retro_get_memory_data`, mapped to RA addresses with rcheevos' `rc_libretro` (PS1: `0x000000`–`0x1FFFFF`); platform-independent memory interface in `cw_devtools` | 1.2 | ✅ |
 | 2.2 | Memory viewer: hex view, sizes bit / 4-bit (low/high nibble) / 8 / 16 / 24 / 32, little- and big-endian, highlight changes, **edit values** | 2.1, 1.3, 1.5 | ✅ |
-| 2.3 | Memory search: snapshot, compare to previous / to value (=, ≠, <, >, ≤, ≥), sizes as in 2.2, filtered result list → open in viewer. Unit-tested on synthetic buffers | 2.1, 2.2 | ⏳ |
+| 2.3 | Memory search: snapshot and compare to previous / first / typed value (=, ≠, <, >, ≤, ≥), sizes as in 2.2 including independent bit-position candidates, optional alignment, All / per-region ranges, bounded undo, filtered result list → open in viewer. Unit-tested on synthetic buffers | 2.1, 2.2 | ✅ |
 | 2.4 | Watch list: addresses to follow live while playing | 2.2 | ⏳ |
 | 2.5 | Code notes, own storage: the user's notes in our own file (`$XDG_DATA_HOME/cheevo-workbench/notes/<GameID>.json`, documented format), shown in viewer, search results and watch list. Server notes are shown **read-only** from RAIntegration's cache `RACache/Data/<GameID>-Notes.json` (configurable RACache path). A "to publish" list shows notes that are new/changed versus the cache, to copy into RAIntegration | 2.2, 2.3, 2.4, 3.1 | ⏳ |
 

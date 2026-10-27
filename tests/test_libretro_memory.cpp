@@ -1,5 +1,6 @@
 // The core's memory in RetroAchievements addresses (rc_libretro), driven by the test core.
 
+#include "cw/devtools/memory_search.hpp"
 #include "libretro_core.hpp"
 #include "libretro_memory.hpp"
 #include "test_support.hpp"
@@ -176,4 +177,23 @@ TEST_CASE("A region is available only if all of it is mapped") {
     CHECK_FALSE(regions[2].writable);
     CHECK(t.core.memory_writer().write(0x010000, std::array<uint8_t, 1>{0x99}) ==
           cw::MemoryWriteError::Unavailable);
+}
+
+TEST_CASE("MemorySearch keeps readable bytes from a partially mapped PS1 region") {
+    LoadedCore t("ps1_partial");
+    REQUIRE(t.core.rebuild_memory(RC_CONSOLE_PLAYSTATION));
+
+    const cw::MemoryReader& memory = t.core.memory();
+    cw::MemorySearch search;
+    REQUIRE(search.configure({.size = cw::MemoryValueSize::EightBit,
+                              .byte_order = cw::ByteOrder::LittleEndian,
+                              .range_start = 0,
+                              .range_end = memory.size() - 1,
+                              .aligned = false}) == false);
+    REQUIRE(search.start(memory));
+    CHECK(search.candidate_count() == 0x100000);
+    const auto last_mapped = search.result_at(memory, 0x0FFFFF);
+    REQUIRE(last_mapped);
+    CHECK(last_mapped->address == 0x0FFFFF);
+    CHECK_FALSE(search.result_at(memory, 0x100000));
 }

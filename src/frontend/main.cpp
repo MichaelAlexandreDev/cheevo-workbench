@@ -1,6 +1,7 @@
 // cheevo-workbench entry point: creates the SDL3 window with an OpenGL context, loads the
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
+#include "cw/devtools/memory_search.hpp"
 #include "frame_pacer.hpp"
 #include "game_view.hpp"
 #include "input_state.hpp"
@@ -31,6 +32,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -185,6 +187,7 @@ struct UiState {
     std::string last_core_extensions;
     std::string status_message;
     bool status_is_error = false;
+    uint64_t game_session_generation = 0;
 };
 
 struct MemoryViewerState {
@@ -204,6 +207,24 @@ struct MemoryViewerState {
     cw::ByteChangeTracker changes; // highlights recent changes for ~1 s of emulated frames
     std::vector<cw::MemoryRegionInfo> previous_regions;
     std::string previous_game_path;
+};
+
+struct MemorySearchState {
+    bool open = false;
+    int selected_region = 0; // zero is All; other values are one-based region indexes
+    cw::MemoryValueSize size = cw::MemoryValueSize::EightBit;
+    cw::ByteOrder byte_order = cw::ByteOrder::LittleEndian;
+    bool aligned = false;
+    bool all_bit_positions = false;
+    cw::MemorySearchComparison comparison = cw::MemorySearchComparison::NotEqual;
+    cw::MemorySearchReference reference = cw::MemorySearchReference::Previous;
+    char constant_input[16] = "0";
+    cw::MemorySearch search;
+    std::vector<cw::MemoryRegionInfo> previous_regions;
+    std::string previous_game_path;
+    uint64_t previous_session_generation = 0;
+    std::string message;
+    bool message_is_error = false;
 };
 
 void report_message(UiState& ui, Notice& notice, const std::string& text, bool ok) {
@@ -420,6 +441,7 @@ void persist_recent(UiState& ui, cw::RecentFiles& recent, const std::filesystem:
 void open_core(UiState& ui, Notice& notice, cw::LibretroCore& core, cw::GameView& game_view,
                cw::RecentFiles& recent, const std::filesystem::path& core_path) {
     const std::string error = load_session(core, core_path, {}, ui.system_dir);
+    ++ui.game_session_generation;
     game_view.clear();
     ui.session.set_paused(false);
     if (!error.empty()) {
@@ -441,6 +463,7 @@ void open_game(UiState& ui, Notice& notice, cw::LibretroCore& core, cw::GameView
         return;
     }
     const std::string error = load_session(core, selected_core, game_path, ui.system_dir);
+    ++ui.game_session_generation;
     game_view.clear();
     ui.session.set_paused(false);
     if (!error.empty()) {
@@ -458,6 +481,7 @@ void open_recent(UiState& ui, Notice& notice, cw::LibretroCore& core, cw::GameVi
                  cw::RecentFiles& recent, const cw::RecentFile& entry) {
     const cw::RecentFile selected = entry;
     const std::string error = load_session(core, selected.core, selected.game, ui.system_dir);
+    ++ui.game_session_generation;
     game_view.clear();
     ui.session.set_paused(false);
     if (!error.empty()) {
@@ -478,6 +502,7 @@ void close_content(UiState& ui, Notice& notice, cw::LibretroCore& core, cw::Game
         ui.last_core_extensions = core.system_info().valid_extensions;
     }
     core.unload();
+    ++ui.game_session_generation;
     game_view.clear();
     ui.session.set_paused(false);
     report_message(ui, notice, "Closed content; the core path is remembered", true);
@@ -1036,10 +1061,347 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer) {
     ImGui::End();
 }
 
+void jump_to_memory_address(MemoryViewerState& viewer, const cw::MemoryReader& memory,
+                            uint32_t address) {
+    const std::vector<cw::MemoryRegionInfo> regions = memory.regions();
+    const auto found = std::find_if(regions.begin(), regions.end(), [address](const auto& region) {
+        return region.start <= address && address <= region.end;
+    });
+    if (found == regions.end()) {
+        return;
+    }
+
+    viewer.open = true;
+    viewer.selected_region = static_cast<int>(std::distance(regions.begin(), found));
+    viewer.selected_address = address;
+    set_memory_address_input(viewer, address);
+    viewer.has_selection = true;
+    viewer.edit_value_initialized = false;
+    viewer.scroll_to_address = address;
+    viewer.message.clear();
+}
+
+void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchState& state,
+                        MemoryViewerState& viewer) {
+    if (!state.open) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Memory Search", &state.open)) {
+        ImGui::End();
+        return;
+    }
+
+    const cw::MemoryReader& memory = core.memory();
+    const std::vector<cw::MemoryRegionInfo> regions = memory.regions();
+    if (state.previous_regions != regions || state.previous_game_path != core.game_path() ||
+        state.previous_session_generation != ui.game_session_generation) {
+        state.search.invalidate();
+        state.selected_region = 0;
+        state.previous_regions = regions;
+        state.previous_game_path = core.game_path();
+        state.previous_session_generation = ui.game_session_generation;
+    }
+
+    if (!core.is_game_loaded() || memory.size() == 0 || regions.empty()) {
+        state.search.invalidate();
+        ImGui::TextDisabled("Load a game with readable memory to start a search.");
+        ImGui::End();
+        return;
+    }
+
+    if (state.selected_region < 0 || static_cast<size_t>(state.selected_region) > regions.size()) {
+        state.selected_region = 0;
+    }
+
+    std::string selected_range = "All";
+    if (state.selected_region > 0) {
+        const cw::MemoryRegionInfo& region =
+            regions[static_cast<size_t>(state.selected_region - 1)];
+        selected_range = region.description.empty() ? "Memory" : region.description;
+        char range[64];
+        std::snprintf(range, sizeof(range), "  0x%06X-0x%06X", region.start, region.end);
+        selected_range += range;
+        if (!region.available) {
+            selected_range += " (not fully available)";
+        }
+    }
+    if (ImGui::BeginCombo("Range", selected_range.c_str())) {
+        const bool all_selected = state.selected_region == 0;
+        if (ImGui::Selectable("All", all_selected)) {
+            state.selected_region = 0;
+        }
+        if (all_selected) {
+            ImGui::SetItemDefaultFocus();
+        }
+        for (size_t i = 0; i < regions.size(); ++i) {
+            const cw::MemoryRegionInfo& region = regions[i];
+            std::string label = region.description.empty() ? "Memory" : region.description;
+            char range[64];
+            std::snprintf(range, sizeof(range), "  0x%06X-0x%06X", region.start, region.end);
+            label += range;
+            if (!region.available) {
+                label += " (not fully available)";
+            }
+            const bool selected = state.selected_region == static_cast<int>(i + 1);
+            if (ImGui::Selectable(label.c_str(), selected)) {
+                state.selected_region = static_cast<int>(i + 1);
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    const char* selected_size = state.all_bit_positions
+                                    ? "All bits (0–7)"
+                                    : kMemoryValueSizes[static_cast<size_t>(state.size)].second;
+    ImGui::SameLine();
+    if (ImGui::BeginCombo("Size", selected_size)) {
+        const bool all_bits_selected = state.all_bit_positions;
+        if (ImGui::Selectable("All bits (0–7)", all_bits_selected)) {
+            state.all_bit_positions = true;
+        }
+        if (all_bits_selected) {
+            ImGui::SetItemDefaultFocus();
+        }
+        for (const auto& [size, label] : kMemoryValueSizes) {
+            const bool selected = !state.all_bit_positions && size == state.size;
+            if (ImGui::Selectable(label, selected)) {
+                state.size = size;
+                state.all_bit_positions = false;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SameLine();
+    const char* order_label =
+        state.byte_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
+    if (ImGui::BeginCombo("Byte order", order_label)) {
+        for (const auto& [order, label] : {std::pair{cw::ByteOrder::LittleEndian, "Little-endian"},
+                                           std::pair{cw::ByteOrder::BigEndian, "Big-endian"}}) {
+            const bool selected = state.byte_order == order;
+            if (ImGui::Selectable(label, selected)) {
+                state.byte_order = order;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    const bool supports_alignment =
+        !state.all_bit_positions && (state.size == cw::MemoryValueSize::SixteenBit ||
+                                     state.size == cw::MemoryValueSize::ThirtyTwoBit);
+    if (!supports_alignment) {
+        state.aligned = false;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!supports_alignment);
+    ImGui::Checkbox("Aligned", &state.aligned);
+    ImGui::EndDisabled();
+
+    cw::MemorySearchConfig config{
+        .size = state.size,
+        .byte_order = state.byte_order,
+        .range_start = state.selected_region == 0
+                           ? 0
+                           : regions[static_cast<size_t>(state.selected_region - 1)].start,
+        .range_end = state.selected_region == 0
+                         ? memory.size() - 1U
+                         : std::min(regions[static_cast<size_t>(state.selected_region - 1)].end,
+                                    memory.size() - 1U),
+        .aligned = state.aligned,
+        .all_bit_positions = state.all_bit_positions};
+    state.search.configure(config);
+
+    constexpr std::array<std::pair<cw::MemorySearchComparison, const char*>, 6> kSearchComparisons =
+        {{{cw::MemorySearchComparison::Equal, "="},
+          {cw::MemorySearchComparison::NotEqual, "!="},
+          {cw::MemorySearchComparison::Less, "<"},
+          {cw::MemorySearchComparison::Greater, ">"},
+          {cw::MemorySearchComparison::LessOrEqual, "<="},
+          {cw::MemorySearchComparison::GreaterOrEqual, ">="}}};
+    constexpr std::array<std::pair<cw::MemorySearchReference, const char*>, 3> kSearchReferences = {
+        {{cw::MemorySearchReference::Previous, "Previous snapshot"},
+         {cw::MemorySearchReference::Initial, "First snapshot"},
+         {cw::MemorySearchReference::Constant, "Value"}}};
+
+    if (ImGui::Button("New Search")) {
+        if (state.search.start(memory)) {
+            state.message.clear();
+            state.message_is_error = false;
+        } else {
+            state.message = "Could not snapshot this memory range.";
+            state.message_is_error = true;
+        }
+    }
+    ImGui::SameLine();
+    const char* comparison_label = "!=";
+    for (const auto& [comparison, label] : kSearchComparisons) {
+        if (comparison == state.comparison) {
+            comparison_label = label;
+            break;
+        }
+    }
+    if (ImGui::BeginCombo("Compare", comparison_label)) {
+        for (const auto& [comparison, label] : kSearchComparisons) {
+            const bool selected = state.comparison == comparison;
+            if (ImGui::Selectable(label, selected)) {
+                state.comparison = comparison;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    const char* reference_label = "Previous snapshot";
+    for (const auto& [reference, label] : kSearchReferences) {
+        if (reference == state.reference) {
+            reference_label = label;
+            break;
+        }
+    }
+    if (ImGui::BeginCombo("Compare with", reference_label)) {
+        for (const auto& [reference, label] : kSearchReferences) {
+            const bool selected = state.reference == reference;
+            if (ImGui::Selectable(label, selected)) {
+                state.reference = reference;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (state.reference == cw::MemorySearchReference::Constant) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::InputText("Value (hex)", state.constant_input, sizeof(state.constant_input),
+                         ImGuiInputTextFlags_CharsHexadecimal);
+    }
+
+    const bool has_search = state.search.active();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!has_search);
+    if (ImGui::Button("Filter")) {
+        uint32_t constant = 0;
+        bool valid = true;
+        if (state.reference == cw::MemorySearchReference::Constant &&
+            (!parse_hex_value(state.constant_input, constant) ||
+             constant > (state.all_bit_positions ? 1U : cw::memory_value_max(state.size)))) {
+            state.message = "Enter a valid hexadecimal value for the selected size.";
+            state.message_is_error = true;
+            valid = false;
+        }
+        if (valid) {
+            if (state.search.filter(memory, state.comparison, state.reference, constant)) {
+                state.message.clear();
+                state.message_is_error = false;
+            } else {
+                state.message = "Could not apply this filter.";
+                state.message_is_error = true;
+            }
+        }
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!has_search || state.search.undo_count() == 0);
+    if (ImGui::Button("Undo")) {
+        if (state.search.undo()) {
+            state.message.clear();
+            state.message_is_error = false;
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+
+    if (state.search.invalidated()) {
+        ImGui::TextDisabled("Search settings changed; start a new search.");
+    }
+    if (state.search.active()) {
+        ImGui::Text("Candidates: %zu  (up to %zu filters can be undone)",
+                    state.search.candidate_count(), cw::MemorySearch::kMaxUndoSteps);
+    } else {
+        ImGui::TextDisabled("No active search.");
+    }
+    if (!state.message.empty()) {
+        const ImVec4 color = state.message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+                                                    : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::TextColored(color, "%s", state.message.c_str());
+    }
+
+    if (state.search.active()) {
+        if (state.search.candidate_count() == 0) {
+            ImGui::TextDisabled("No candidates remain. Undo a filter or start a new search.");
+        } else if (ImGui::BeginTable("MemorySearchResults", 4,
+                                     ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                         ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                                     ImVec2(0.0f, 0.0f))) {
+            ImGui::TableSetupColumn("Address");
+            ImGui::TableSetupColumn("Current");
+            ImGui::TableSetupColumn("Previous");
+            ImGui::TableSetupColumn("First snapshot");
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+
+            const size_t visible_count =
+                std::min<size_t>(state.search.candidate_count(),
+                                 static_cast<size_t>(std::numeric_limits<int>::max()));
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(visible_count));
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const auto result = state.search.result_at(memory, static_cast<size_t>(row));
+                    if (!result) {
+                        continue;
+                    }
+                    ImGui::PushID(row);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    char address[24];
+                    if (result->bit_index) {
+                        std::snprintf(address, sizeof(address), "0x%06X.Bit%u", result->address,
+                                      static_cast<unsigned>(*result->bit_index));
+                    } else {
+                        std::snprintf(address, sizeof(address), "0x%06X", result->address);
+                    }
+                    if (ImGui::Selectable(address, false, ImGuiSelectableFlags_SpanAllColumns) &&
+                        result->current) {
+                        jump_to_memory_address(viewer, memory, result->address);
+                    }
+                    ImGui::TableSetColumnIndex(1);
+                    if (result->current) {
+                        ImGui::Text("0x%X", *result->current);
+                    } else {
+                        ImGui::TextDisabled("--");
+                    }
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("0x%X", result->previous);
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::Text("0x%X", result->initial);
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndTable();
+        }
+    }
+
+    ImGui::End();
+}
+
 void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     cw::SaveStates& save_states, cw::RecentFiles& recent, cw::GameView& game_view,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config,
-                    MemoryViewerState& memory_viewer) {
+                    MemoryViewerState& memory_viewer, MemorySearchState& memory_search) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -1124,6 +1486,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
     }
     if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Memory Viewer", nullptr, &memory_viewer.open);
+        ImGui::MenuItem("Memory Search", nullptr, &memory_search.open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
         ImGui::EndMenu();
     }
@@ -1267,6 +1630,7 @@ int main(int argc, char** argv) {
     Notice notice;
     UiState ui;
     MemoryViewerState memory_viewer;
+    MemorySearchState memory_search;
     ui.system_dir = launch->system_dir;
     const std::string load_error = load_from_options(core, *launch);
     ui.status_message = load_error;
@@ -1364,8 +1728,9 @@ int main(int argc, char** argv) {
             draw_notice(notice, background, central->Pos, max);
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
-                       memory_viewer);
+                       memory_viewer, memory_search);
         draw_memory_viewer(core, memory_viewer);
+        draw_memory_search(ui, core, memory_search, memory_viewer);
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);
         if (ui.show_imgui_demo) {
