@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #ifndef CW_TEST_CORE_PATH
 #error "CW_TEST_CORE_PATH must name the built synthetic libretro core"
@@ -76,6 +77,44 @@ Rgb expected_color(unsigned x, unsigned y, uint64_t frame, retro_pixel_format fo
     }
 }
 
+std::vector<int16_t> expected_audio(uint64_t frame_count) {
+    constexpr size_t kFramesPerRun = 735;
+    std::vector<int16_t> samples;
+    samples.reserve(kFramesPerRun * 2);
+    for (size_t index = 0; index < kFramesPerRun; ++index) {
+        const uint32_t phase = static_cast<uint32_t>(frame_count * kFramesPerRun + index);
+        const int16_t left = static_cast<int16_t>(static_cast<int32_t>(phase % 65535U) - 32767);
+        samples.push_back(left);
+        samples.push_back(static_cast<int16_t>(-left));
+    }
+    return samples;
+}
+
+class CaptureAudioSink final : public cw::AudioSink {
+  public:
+    void set_sample_rate(double rate) override {
+        sample_rate = rate;
+        sample_rates.push_back(rate);
+    }
+
+    void write(const int16_t* interleaved, size_t frames) override {
+        ++write_calls;
+        write_sizes.push_back(frames);
+        if (frames > 0) {
+            samples.insert(samples.end(), interleaved, interleaved + frames * 2);
+        }
+    }
+
+    void clear() override { ++clear_calls; }
+
+    double sample_rate = 0.0;
+    size_t write_calls = 0;
+    size_t clear_calls = 0;
+    std::vector<double> sample_rates;
+    std::vector<size_t> write_sizes;
+    std::vector<int16_t> samples;
+};
+
 void check_frame_pixel(const cw::VideoFrame& frame, unsigned x, unsigned y, Rgb expected) {
     CAPTURE(x);
     CAPTURE(y);
@@ -99,7 +138,7 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK_FALSE(core.system_info().need_fullpath);
 
     const auto& options = core.options().options();
-    REQUIRE(options.size() == 2);
+    REQUIRE(options.size() == 4);
     CHECK(options[0].key == "cw_test_pixel_format");
     CHECK(options[0].value == "0RGB1555");
     REQUIRE(options[0].values.size() == 3);
@@ -108,6 +147,10 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK(options[0].values[2] == "RGB565");
     CHECK(options[1].key == "cw_test_resize");
     CHECK(options[1].value == "disabled");
+    CHECK(options[2].key == "cw_test_audio_mode");
+    CHECK(options[2].value == "batch");
+    CHECK(options[3].key == "cw_test_sample_rate_change");
+    CHECK(options[3].value == "disabled");
 
     REQUIRE(core.load_game(content.path(), error));
     CHECK(core.is_game_loaded());
@@ -259,4 +302,73 @@ TEST_CASE("Core options reject unknown keys and values") {
     CHECK_FALSE(core.set_option("cw_test_pixel_format", "RGBA4444"));
     CHECK_FALSE(core.set_option("no_such_option", "x"));
     CHECK(core.options().get("cw_test_pixel_format") == std::string("0RGB1555"));
+}
+
+TEST_CASE("LibretroCore buffers batch audio and writes once per frame") {
+    SyntheticContent content;
+    CaptureAudioSink sink;
+    cw::LibretroCore core;
+    core.set_audio_sink(&sink);
+    std::string error;
+
+    REQUIRE(core.load(test_core_path(), {}, error));
+    REQUIRE(core.load_game(content.path(), error));
+    CHECK(sink.sample_rate == doctest::Approx(44100.0));
+
+    core.run_frame();
+    core.run_frame();
+
+    CHECK(sink.write_calls == 2);
+    CHECK((sink.write_sizes == std::vector<size_t>{735, 735}));
+    CHECK(sink.samples == [&] {
+        std::vector<int16_t> expected = expected_audio(1);
+        const std::vector<int16_t> second = expected_audio(2);
+        expected.insert(expected.end(), second.begin(), second.end());
+        return expected;
+    }());
+    for (size_t frame = 0; frame < sink.samples.size() / 2; ++frame) {
+        CHECK(sink.samples[frame * 2 + 1] == -sink.samples[frame * 2]);
+    }
+}
+
+TEST_CASE("LibretroCore buffers single-sample audio callbacks") {
+    SyntheticContent content;
+    CaptureAudioSink sink;
+    cw::LibretroCore core;
+    core.set_audio_sink(&sink);
+    std::string error;
+
+    REQUIRE(core.load(test_core_path(), {}, error));
+    REQUIRE(core.set_option("cw_test_audio_mode", "single"));
+    REQUIRE(core.load_game(content.path(), error));
+    core.run_frame();
+
+    CHECK(sink.write_calls == 1);
+    CHECK(sink.write_sizes == std::vector<size_t>{735});
+    CHECK(sink.samples == expected_audio(1));
+    for (size_t frame = 0; frame < sink.samples.size() / 2; ++frame) {
+        CHECK(sink.samples[frame * 2 + 1] == -sink.samples[frame * 2]);
+    }
+}
+
+TEST_CASE("LibretroCore forwards SET_SYSTEM_AV_INFO sample-rate changes to the sink") {
+    SyntheticContent content;
+    CaptureAudioSink sink;
+    cw::LibretroCore core;
+    core.set_audio_sink(&sink);
+    std::string error;
+
+    REQUIRE(core.load(test_core_path(), {}, error));
+    REQUIRE(core.set_option("cw_test_sample_rate_change", "enabled"));
+    REQUIRE(core.load_game(content.path(), error));
+    CHECK(sink.sample_rate == doctest::Approx(44100.0));
+
+    core.run_frame();
+    core.run_frame();
+    core.run_frame(); // frame 3 announces 48 kHz through SET_SYSTEM_AV_INFO
+
+    CHECK(core.av_info().timing.sample_rate == doctest::Approx(48000.0));
+    REQUIRE(sink.sample_rates.size() == 2);
+    CHECK(sink.sample_rates[0] == doctest::Approx(44100.0));
+    CHECK(sink.sample_rates[1] == doctest::Approx(48000.0));
 }

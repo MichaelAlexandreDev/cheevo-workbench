@@ -1,9 +1,11 @@
 // cheevo-workbench entry point: creates the SDL3 window with an OpenGL context, loads the
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
+#include "frame_pacer.hpp"
 #include "game_view.hpp"
 #include "libretro_core.hpp"
 #include "paths.hpp"
+#include "sdl_audio_output.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
@@ -12,6 +14,8 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_internal.h> // DockBuilderGetCentralNode: where the game is drawn
 
+#include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
@@ -101,6 +105,7 @@ std::string load_from_options(cw::LibretroCore& core, const LaunchOptions& optio
 struct UiState {
     bool quit = false;
     bool show_imgui_demo = false;
+    bool paused = false; // Pause controls are added in step 1.7.
 };
 
 void draw_main_menu(UiState& ui) {
@@ -123,7 +128,8 @@ void draw_main_menu(UiState& ui) {
     ImGui::EndMainMenuBar();
 }
 
-void draw_status_window(const cw::LibretroCore& core, const std::string& load_error) {
+void draw_status_window(const cw::LibretroCore& core, const std::string& load_error,
+                        cw::SdlAudioOutput& audio, const cw::FramePacer& pacer) {
     ImGui::Begin("Status");
     ImGui::Text("cheevo-workbench %s", CW_VERSION);
     ImGui::Separator();
@@ -150,10 +156,20 @@ void draw_status_window(const cw::LibretroCore& core, const std::string& load_er
             ImGui::Text("Core timing: %.3f fps, audio %.0f Hz", av.timing.fps,
                         av.timing.sample_rate);
             ImGui::Text("Frames run: %llu", static_cast<unsigned long long>(core.frame_count()));
+            ImGui::Text("Measured FPS: %.2f", pacer.measured_fps());
         }
     }
 
     ImGui::Separator();
+    const std::string audio_status = audio.status_text();
+    if (audio.has_error()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Audio: %s", audio_status.c_str());
+    } else {
+        ImGui::Text("Audio: %s", audio_status.c_str());
+    }
+    ImGui::Text("Audio queue: %.1f ms", audio.queued_seconds() * 1000.0);
+    ImGui::Text("Frame pacing: %s",
+                pacer.mode() == cw::FramePacer::Mode::Audio ? "audio" : "clock");
     ImGui::Text("UI: %.1f FPS", ImGui::GetIO().Framerate);
     ImGui::End();
 }
@@ -197,7 +213,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // vsync; frame pacing for the core comes with audio (step 1.4)
+    SDL_GL_SetSwapInterval(1); // Synchronize UI presentation; the core has its own frame pacer.
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -216,8 +232,12 @@ int main(int argc, char** argv) {
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 
+    cw::SdlAudioOutput audio_output;
+    audio_output.initialize(); // A missing audio device must not prevent the UI from opening.
+
     // Loaded after the GL context exists: hardware-rendered cores will need it.
     cw::LibretroCore core;
+    core.set_audio_sink(&audio_output);
     cw::GameView game_view;
     const std::string load_error = load_from_options(core, *launch);
     if (!load_error.empty()) {
@@ -225,6 +245,7 @@ int main(int argc, char** argv) {
     }
 
     UiState ui;
+    cw::FramePacer frame_pacer;
     while (!ui.quit) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -238,10 +259,33 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // One emulated frame per UI frame. With vsync at 60 Hz this is close to the PS1's
-        // ~59.94 fps; proper timing based on the core's fps comes with audio (step 1.4).
-        core.run_frame();
-        game_view.update(core.video_frame());
+        const auto now = cw::FramePacer::Clock::now();
+        frame_pacer.set_core_fps(core.is_game_loaded() ? core.av_info().timing.fps : 0.0, now);
+        frame_pacer.set_audio_available(audio_output.available(), now);
+        if (frame_pacer.set_paused(ui.paused, now)) {
+            audio_output.clear();
+        }
+
+        size_t frames_run = 0;
+        if (core.is_game_loaded()) {
+            const size_t frames_due = frame_pacer.frames_to_run(now, audio_output.queued_seconds());
+            for (size_t i = 0; i < frames_due; ++i) {
+                core.run_frame();
+                ++frames_run;
+                if (!audio_output.available() &&
+                    frame_pacer.mode() == cw::FramePacer::Mode::Audio) {
+                    frame_pacer.set_audio_available(false, cw::FramePacer::Clock::now());
+                    break;
+                }
+            }
+        }
+        if (frames_run > 0) {
+            game_view.update(core.video_frame());
+        }
+        if (frame_pacer.record_frames(frames_run, cw::FramePacer::Clock::now())) {
+            SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "Core measured %.2f FPS",
+                         frame_pacer.measured_fps());
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
@@ -258,7 +302,7 @@ int main(int argc, char** argv) {
                            core.av_info().geometry.aspect_ratio);
         }
         draw_main_menu(ui);
-        draw_status_window(core, load_error);
+        draw_status_window(core, load_error, audio_output, frame_pacer);
         if (ui.show_imgui_demo) {
             ImGui::ShowDemoWindow(&ui.show_imgui_demo);
         }
@@ -273,6 +317,7 @@ int main(int argc, char** argv) {
     }
 
     core.unload(); // before the GL context goes away
+    audio_output.shutdown();
     game_view.release();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();

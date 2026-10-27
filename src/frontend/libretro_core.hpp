@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio_sink.hpp"
 #include "core_options.hpp"
 #include "video_frame.hpp"
 
@@ -48,6 +49,9 @@ class LibretroCore {
 
     // Emulates one frame (retro_run). Only valid once a game is loaded.
     void run_frame();
+    // The sink is not owned by the core. Samples from both libretro audio callbacks are buffered
+    // during retro_run() and delivered in one write() call when that frame finishes.
+    void set_audio_sink(AudioSink* sink);
 
     bool is_loaded() const { return handle_ != nullptr; }
     bool is_game_loaded() const { return game_loaded_; }
@@ -129,6 +133,10 @@ class LibretroCore {
     uint64_t frame_count_ = 0;
     VideoFrame frame_;
     bool reported_bad_frame_ = false; // log a rejected frame only once
+    AudioSink* audio_sink_ = nullptr;
+    std::vector<int16_t> audio_samples_;
+    bool audio_buffer_failed_ = false;
+    bool reported_audio_buffer_failure_ = false;
 };
 
 } // namespace cw

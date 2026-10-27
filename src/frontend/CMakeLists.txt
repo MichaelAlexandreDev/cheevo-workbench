@@ -2,8 +2,10 @@
 # cw_devtools and remains independent of SDL/OpenGL.
 add_library(cw_frontend STATIC
     core_options.cpp
+    frame_pacer.cpp
     libretro_core.cpp
     paths.cpp
+    sdl_audio_output.cpp
     video_frame.cpp)
 target_include_directories(cw_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cw_frontend
