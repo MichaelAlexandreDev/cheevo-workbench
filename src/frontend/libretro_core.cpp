@@ -172,6 +172,7 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     clear_frame();
 
     api_.get_system_av_info(&av_info_);
+    rebuild_memory(console_for_core(core_path_));
     if (audio_sink_) {
         audio_sink_->set_sample_rate(av_info_.timing.sample_rate);
     }
@@ -183,6 +184,9 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
 }
 
 void LibretroCore::unload() {
+    // The memory map points into the core's memory: drop it before the core frees that memory.
+    memory_.clear();
+    memory_descriptors_.clear();
     if (audio_sink_) {
         audio_sink_->clear();
     }
@@ -316,6 +320,35 @@ bool LibretroCore::unserialize_state(std::span<const uint8_t> data, std::string&
     return true;
 }
 
+bool LibretroCore::rebuild_memory(uint32_t console_id) {
+    if (!game_loaded_) {
+        memory_.clear();
+        return false;
+    }
+    retro_memory_map map{.descriptors = memory_descriptors_.data(),
+                         .num_descriptors = static_cast<unsigned>(memory_descriptors_.size())};
+    const bool ok = memory_.init(memory_descriptors_.empty() ? nullptr : &map, &on_core_memory_info,
+                                 console_id);
+    if (ok) {
+        SDL_Log("Memory: console %u, %u bytes of RetroAchievements address space (%s)", console_id,
+                memory_.size(),
+                memory_descriptors_.empty() ? "from retro_get_memory_data" : "from memory maps");
+    } else {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Memory: nothing could be mapped for console %u",
+                    console_id);
+    }
+    return ok;
+}
+
+void LibretroCore::on_core_memory_info(uint32_t id, rc_libretro_core_memory_info_t* info) {
+    info->data = nullptr;
+    info->size = 0;
+    if (s_active && s_active->game_loaded_) {
+        info->data = static_cast<uint8_t*>(s_active->api_.get_memory_data(id));
+        info->size = info->data ? s_active->api_.get_memory_size(id) : 0;
+    }
+}
+
 const uint8_t* LibretroCore::system_ram_data() const {
     if (!game_loaded_ || !api_.get_memory_data) {
         return nullptr;
@@ -340,6 +373,13 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
 
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
         return true;
+
+    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
+        // Usually sent during retro_load_game; the map is built right after it (rebuild_memory).
+        const auto* map = static_cast<const retro_memory_map*>(data);
+        memory_descriptors_.assign(map->descriptors, map->descriptors + map->num_descriptors);
+        return true;
+    }
 
     case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
         // libretro.h: the front-end keeps the flags it supports and clears the others.
