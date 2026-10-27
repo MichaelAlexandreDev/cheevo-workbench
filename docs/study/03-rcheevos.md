@@ -163,8 +163,9 @@ bytes a partir do endereço X", e nós respondemos montando os bytes em little-e
 recebem um ponteiro de contexto. A solução é a mesma do 1.2 (`s_active`): um ponteiro
 `thread_local` aponta para a lista de eventos só durante a chamada.
 
-**Ao trocar ou recarregar o jogo**, tudo volta para Waiting e os hits são zerados
-(`rc_runtime_reset`), e os endereços são revalidados contra a memória nova.
+**Ao trocar ou recarregar o jogo**, o motor é **reconstruído do zero**: todas as conquistas voltam
+para Waiting, os hits são zerados, e os endereços são revalidados contra a memória nova. (Veja na
+revisão abaixo por que um simples `rc_runtime_reset` não bastava.)
 
 ### Arquivos para ler (nesta ordem)
 
@@ -184,6 +185,20 @@ recebem um ponteiro de contexto. A solução é a mesma do 1.2 (`s_active`): um 
   sem servidor).
 - Reativar uma conquista com a mesma lógica não cria outra: o rcheevos compara um checksum da
   lógica e apenas a reseta (`rc_runtime_activate_achievement`). É assim que o Re-arm funciona.
+
+### Na revisão do Codex (PR #41)
+
+- **Endereço inválido "grudava" depois de trocar de jogo.** Quando um endereço não pode ser lido,
+  o rcheevos marca a leitura daquele endereço como "não ler mais" (`RC_VALUE_TYPE_NONE`, em
+  `runtime.c`). O `rc_runtime_reset` zera os hits, mas **não desfaz essa marca**. Resultado: num
+  jogo em que o endereço existe, a conquista aparecia como Waiting/Active e **nunca mais lia a
+  memória**, sem avisar. Correção: ao trocar de jogo, o motor é reconstruído do zero (todas as
+  lógicas são lidas de novo); e o Re-arm fica indisponível para conquistas desativadas. Um teste
+  reproduzia o bug antes da correção (a conquista não disparava).
+- **Leitura no fim da memória:** um valor de 2 ou 4 bytes começando no último byte legível lê os
+  bytes que faltam como zero, como o RAIntegration faz; agora há um teste para isso.
+- Lição: ler o código da biblioteca (aqui, o que o `rc_runtime_reset` *não* faz) pega bugs que
+  nenhum teste "do caminho feliz" mostraria.
 
 ### Problemas encontrados
 

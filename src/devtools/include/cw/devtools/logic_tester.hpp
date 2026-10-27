@@ -56,10 +56,12 @@ class LogicTester {
     // with rcheevos' description of the problem in `error`.
     std::optional<uint32_t> add(std::string title, std::string logic, std::string& error);
     bool remove(uint32_t id);
-    // Puts a triggered (or disabled) achievement back to Waiting, hit counts cleared.
+    // Puts a triggered achievement back to Waiting, hit counts cleared. Refused for a Disabled
+    // one: its address is unreadable, and only a memory that has it (after reset()) fixes that.
     bool rearm(uint32_t id);
-    // Back to Waiting with cleared hit counts for every achievement, e.g. when a game is
-    // (re)loaded: hits counted against the previous memory must not carry over.
+    // Every achievement back to Waiting with cleared hit counts and re-enabled, e.g. when a game
+    // is (re)loaded: nothing counted or disabled against the previous memory carries over. Call
+    // validate_addresses() with the new memory afterwards.
     void reset();
 
     // Disables achievements that read addresses `memory` cannot provide and reports them as

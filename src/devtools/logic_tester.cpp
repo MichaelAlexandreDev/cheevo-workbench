@@ -118,7 +118,10 @@ bool LogicTester::remove(uint32_t id) {
 bool LogicTester::rearm(uint32_t id) {
     const auto found = std::find_if(achievements_.begin(), achievements_.end(),
                                     [id](const TestedAchievement& a) { return a.id == id; });
-    if (found == achievements_.end()) {
+    // A Disabled achievement reads an address the memory cannot provide; re-arming would hide
+    // that without making the address readable. It comes back on reset() with a memory that
+    // has the address.
+    if (found == achievements_.end() || state(id) == LogicState::Disabled) {
         return false;
     }
     // Activating the same id with the same logic only resets it (rcheevos compares checksums).
@@ -127,7 +130,16 @@ bool LogicTester::rearm(uint32_t id) {
 }
 
 void LogicTester::reset() {
-    rc_runtime_reset(runtime_.get());
+    // A fresh runtime rather than rc_runtime_reset(): the reset only clears hit counts, while
+    // rc_runtime_validate_addresses() permanently marks the memory references of unreadable
+    // addresses as "do not read" (RC_VALUE_TYPE_NONE, runtime.c). Kept, an address that the next
+    // game does have would never be read again. Rebuilding re-parses every logic string.
+    runtime_.reset(new rc_runtime_t);
+    rc_runtime_init(runtime_.get());
+    for (const TestedAchievement& a : achievements_) {
+        // The logic parsed when it was added, so it parses again.
+        rc_runtime_activate_achievement(runtime_.get(), a.id, a.logic.c_str(), nullptr, 0);
+    }
 }
 
 std::vector<LogicEvent> LogicTester::validate_addresses(const MemoryReader& memory,

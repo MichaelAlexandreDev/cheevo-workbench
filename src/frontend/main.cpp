@@ -2211,8 +2211,15 @@ void draw_achievement_tester(cw::LogicTester& tester, AchievementTesterUi& state
                 ImGui::SetTooltip("%s", a.logic.c_str());
             }
             ImGui::TableSetColumnIndex(4);
+            ImGui::BeginDisabled(logic_state == cw::LogicState::Disabled);
             if (ImGui::SmallButton("Re-arm")) {
                 rearm_id = a.id;
+            }
+            ImGui::EndDisabled();
+            if (logic_state == cw::LogicState::Disabled &&
+                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Its address cannot be read in this game; it is checked again "
+                                  "when a game is loaded.");
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Remove")) {

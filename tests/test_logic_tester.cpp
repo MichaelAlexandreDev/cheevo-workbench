@@ -180,3 +180,42 @@ TEST_CASE("A triggered achievement can be re-armed and removed") {
     CHECK_FALSE(tester.rearm(*id));
     CHECK(tester.achievements().empty());
 }
+
+TEST_CASE("An address disabled in one game is read again after reset in a game that has it") {
+    // rcheevos marks the memory reference of an unreadable address as "do not read"; a plain
+    // rc_runtime_reset() would keep that mark, and the achievement would sit in Waiting/Active
+    // without ever reading the address again (found in review of #41).
+    cw::BufferMemory small(std::vector<uint8_t>(0x100, 0));
+    cw::BufferMemory large(std::vector<uint8_t>(0x1000, 0));
+    cw::LogicTester tester;
+    std::string error;
+    const auto id = tester.add("High", "0xH0800=7", error);
+    REQUIRE(id);
+    REQUIRE(tester.validate_addresses(small, 0).size() == 1); // 0x800 is past the small memory
+    CHECK(tester.state(*id) == cw::LogicState::Disabled);
+    CHECK_FALSE(tester.rearm(*id)); // re-arming cannot fix an unreadable address
+
+    tester.reset(); // a new game is loaded
+    CHECK(tester.validate_addresses(large, 0).empty());
+    CHECK(tester.state(*id) == cw::LogicState::Waiting);
+    tester.do_frame(large, 1);
+    large.bytes()[0x800] = 7;
+    CHECK(has_event(tester.do_frame(large, 2), *id, cw::LogicEventKind::Triggered));
+}
+
+TEST_CASE("Values starting at the last readable byte read the missing bytes as zero") {
+    // rcheevos asks for 2 or 4 bytes (24-bit values are 4-byte reads, masked); past the end of
+    // memory the missing bytes are zero, as in RAIntegration's EmulatorMemoryContext::ReadMemory.
+    cw::BufferMemory memory(std::vector<uint8_t>(0x100, 0));
+    cw::LogicTester tester;
+    std::string error;
+    const auto id16 = tester.add("16 at end", "0x 00FF=18", error);
+    const auto id24 = tester.add("24 at end", "0xW00FF=18", error);
+    REQUIRE((id16 && id24));
+    CHECK(tester.validate_addresses(memory, 0).empty()); // the first byte is readable
+    tester.do_frame(memory, 1);
+    memory.bytes()[0xFF] = 18;
+    const auto events = tester.do_frame(memory, 2);
+    CHECK(has_event(events, *id16, cw::LogicEventKind::Triggered));
+    CHECK(has_event(events, *id24, cw::LogicEventKind::Triggered));
+}
