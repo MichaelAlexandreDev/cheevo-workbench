@@ -28,6 +28,8 @@
    1 KiB of scratchpad at 0x1F800000. Marker bytes sit at the edges of each RA region. */
 #define TEST_CORE_PS1_RAM_SIZE 0x200000U
 #define TEST_CORE_PS1_SCRATCHPAD_SIZE 0x400U
+/* A little-endian frame counter used by watch-list integration tests on the PS1 map. */
+#define TEST_CORE_PS1_FRAME_COUNT_OFFSET 0x000100U
 /* Announced with the quirks option: two real quirks plus a bit libretro does not define, which
    the front-end must clear (as well as ENDIAN_DEPENDENT, which it cannot enforce). */
 #define TEST_CORE_UNKNOWN_QUIRK ((uint64_t)1 << 40)
@@ -560,6 +562,7 @@ void retro_run(void) {
         system_ram[index] = (uint8_t)(index * 17U + frame_count * 31U);
 
     write_u32_le(system_ram + TEST_CORE_FRAME_COUNT_OFFSET, (uint32_t)frame_count);
+    write_u32_le(ps1_ram + TEST_CORE_PS1_FRAME_COUNT_OFFSET, (uint32_t)frame_count);
     system_ram[TEST_CORE_INPUT_MASK_OFFSET] = (uint8_t)input_mask;
     system_ram[TEST_CORE_INPUT_MASK_OFFSET + 1U] = (uint8_t)(input_mask >> 8U);
 

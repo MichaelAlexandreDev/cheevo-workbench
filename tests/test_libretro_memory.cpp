@@ -1,6 +1,7 @@
 // The core's memory in RetroAchievements addresses (rc_libretro), driven by the test core.
 
 #include "cw/devtools/memory_search.hpp"
+#include "cw/devtools/watch_list.hpp"
 #include "libretro_core.hpp"
 #include "libretro_memory.hpp"
 #include "test_support.hpp"
@@ -93,6 +94,32 @@ TEST_CASE("A PS1 memory map lands on the RetroAchievements PS1 addresses") {
     CHECK(regions[0].writable);
     CHECK(regions[1].writable);
     CHECK(regions[2].writable);
+}
+
+TEST_CASE("Watch list follows a PS1-mapped core frame counter and survives unload safely") {
+    LoadedCore t("ps1");
+    REQUIRE(t.core.rebuild_memory(RC_CONSOLE_PLAYSTATION));
+
+    cw::WatchList watches;
+    REQUIRE(watches.add(0x000100, cw::MemoryValueSize::ThirtyTwoBit, cw::ByteOrder::LittleEndian,
+                        "Frames"));
+    watches.update(t.core.memory(), t.core.frame_count());
+    REQUIRE(watches.items()[0].current_value == 0u);
+
+    t.core.run_frame();
+    watches.update(t.core.memory(), t.core.frame_count());
+    CHECK(watches.items()[0].current_value == 1u);
+    CHECK(watches.items()[0].previous_value == 0u);
+    CHECK(watches.items()[0].last_changed_frame == 1u);
+
+    t.core.run_frame();
+    watches.update(t.core.memory(), t.core.frame_count());
+    CHECK(watches.items()[0].current_value == 2u);
+
+    t.core.unload();
+    watches.update(t.core.memory(), t.core.frame_count());
+    CHECK_FALSE(watches.items()[0].current_value.has_value());
+    CHECK(t.core.memory().size() == 0);
 }
 
 TEST_CASE("Writing to LibretroMemory changes the mapped core RAM") {
