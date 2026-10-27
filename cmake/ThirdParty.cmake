@@ -3,7 +3,7 @@
 
 set(CW_THIRD_PARTY ${PROJECT_SOURCE_DIR}/third_party)
 
-foreach(dep imgui rcheevos doctest libretro-common)
+foreach(dep imgui rcheevos doctest libretro-common json)
     if(NOT EXISTS ${CW_THIRD_PARTY}/${dep}/.git)
         message(FATAL_ERROR
             "third_party/${dep} is missing. Run: git submodule update --init --recursive")
@@ -46,6 +46,10 @@ add_library(rcheevos STATIC
 # src/ is public too because rc_libretro.h lives there.
 target_include_directories(rcheevos SYSTEM PUBLIC ${RC_DIR}/include ${RC_DIR}/src)
 target_link_libraries(rcheevos PUBLIC libretro_api) # rc_libretro.h includes libretro.h
+
+# --- nlohmann/json (header-only): our JSON files (code notes, bookmarks) and RAIntegration's ----
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json SYSTEM INTERFACE ${CW_THIRD_PARTY}/json/include)
 
 # --- doctest (unit tests) ---------------------------------------------------------------------
 add_library(doctest INTERFACE)
