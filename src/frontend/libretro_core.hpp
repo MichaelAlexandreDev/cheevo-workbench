@@ -97,6 +97,10 @@ class LibretroCore {
     // Maps the memory again for another console (e.g. one chosen by the user, or in tests).
     // Returns false if nothing could be mapped.
     bool rebuild_memory(uint32_t console_id);
+    // The descriptors of the last SET_MEMORY_MAPS, as copied (empty without a map).
+    std::span<const retro_memory_descriptor> memory_descriptors() const {
+        return memory_descriptors_;
+    }
 
     // RETRO_SERIALIZATION_QUIRK_* flags announced by the core, as we acknowledged them.
     uint64_t serialization_quirks() const { return serialization_quirks_; }
@@ -169,9 +173,10 @@ class LibretroCore {
     AudioSink* audio_sink_ = nullptr;
     JoypadState* joypad_state_ = nullptr;
     uint64_t serialization_quirks_ = 0;
-    // Copy of SET_MEMORY_MAPS: the core's array may not outlive the call, but the pointers in
-    // it (into the core's memory) stay valid while the game is loaded.
+    // Copy of SET_MEMORY_MAPS: the core's array (and its strings) may not outlive the call, but
+    // the `ptr` fields (into the core's memory) stay valid while the game is loaded.
     std::vector<retro_memory_descriptor> memory_descriptors_;
+    std::vector<std::string> memory_addrspaces_; // the descriptors' addrspace strings
     LibretroMemory memory_;
     std::vector<int16_t> audio_samples_;
     bool audio_buffer_failed_ = false;

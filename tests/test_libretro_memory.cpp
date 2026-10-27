@@ -103,3 +103,52 @@ TEST_CASE("The memory map disappears with the game, so nothing can read freed me
     CHECK(t.core.memory().regions().empty());
     CHECK_FALSE(t.core.rebuild_memory(RC_CONSOLE_PLAYSTATION)); // no game: nothing to map
 }
+
+TEST_CASE("A memory map announced by a rejected load is not reused for the next game") {
+    SyntheticContent content;
+    cw::LibretroCore core;
+    std::string error;
+    REQUIRE(core.load(test_core_path(), {}, error));
+    REQUIRE(core.set_option("cw_test_memory_map", "ps1"));
+    REQUIRE(core.set_option("cw_test_fail_load", "after_map"));
+    CHECK_FALSE(core.load_game(content.path(), error)); // the core sent its map, then said no
+
+    REQUIRE(core.set_option("cw_test_memory_map", "none"));
+    REQUIRE(core.set_option("cw_test_fail_load", "disabled"));
+    REQUIRE(core.load_game(content.path(), error));
+    CHECK(core.memory_descriptors().empty());
+    CHECK(core.memory().size() == 64 * 1024); // the flat RAM of this game, not the old PS1 map
+}
+
+TEST_CASE("An empty memory map falls back to retro_get_memory_data") {
+    LoadedCore t("empty"); // SET_MEMORY_MAPS with descriptors = NULL, num_descriptors = 0
+    CHECK(t.core.memory_descriptors().empty());
+    CHECK(t.core.memory().size() == 64 * 1024);
+}
+
+TEST_CASE("Descriptor strings are copied, not borrowed from the core") {
+    LoadedCore t("ps1");
+    const auto descriptors = t.core.memory_descriptors();
+    REQUIRE(descriptors.size() == 2);
+    // The test core overwrote its own buffer with "XXXXXXX" right after SET_MEMORY_MAPS.
+    REQUIRE(descriptors[0].addrspace != nullptr);
+    CHECK(std::string(descriptors[0].addrspace) == "ram");
+    CHECK(descriptors[1].addrspace == nullptr);
+}
+
+TEST_CASE("A region is available only if all of it is mapped") {
+    LoadedCore t("ps1_partial"); // main RAM descriptor covers 1 MiB, no scratchpad
+    REQUIRE(t.core.rebuild_memory(RC_CONSOLE_PLAYSTATION));
+    const cw::MemoryReader& memory = t.core.memory();
+
+    const auto regions = memory.regions();
+    REQUIRE(regions.size() == 3);
+    CHECK(regions[0].description == "Kernel RAM");
+    CHECK(regions[0].available);       // 0x000000-0x00FFFF: inside the mapped 1 MiB
+    CHECK_FALSE(regions[1].available); // 0x010000-0x1FFFFF: only up to 0x0FFFFF is mapped
+    CHECK_FALSE(regions[2].available); // scratchpad: not announced at all
+
+    CHECK(cw::read_le(memory, 0x0FFFFF, 1).has_value());
+    CHECK_FALSE(cw::read_le(memory, 0x100000, 1));
+    CHECK_FALSE(cw::read_le(memory, 0x200000, 1));
+}

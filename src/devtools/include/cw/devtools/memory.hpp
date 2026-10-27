@@ -14,7 +14,9 @@ struct MemoryRegionInfo {
     uint32_t start = 0; // first address
     uint32_t end = 0;   // last address (inclusive)
     std::string description;
-    bool available = false; // false when the emulator does not expose this block
+    // True only if every address from start to end can be read; false when the emulator does
+    // not expose the block, or only part of it.
+    bool available = false;
 
     friend bool operator==(const MemoryRegionInfo&, const MemoryRegionInfo&) = default;
 };
@@ -27,7 +29,9 @@ class MemoryReader {
   public:
     virtual ~MemoryReader() = default;
 
-    // Valid addresses are 0 .. size() - 1 (some of them may be unavailable).
+    // Valid addresses are 0 .. size() - 1 (some of them may be unavailable). RA address spaces
+    // are far below 4 GiB (PS1: 0x200400 bytes), so a full 2^32-byte space is not representable;
+    // implementations cap size() at UINT32_MAX.
     virtual uint32_t size() const = 0;
 
     // Copies up to out.size() bytes starting at `address` and returns how many were copied.

@@ -65,9 +65,11 @@ de existir. Ler depois disso é ler memória liberada. O teste de mutação most
 sem apagar o mapa no `unload`, o programa caiu com **Segmentation fault**. Por isso o
 `LibretroCore` é o dono do mapa e o apaga *antes* de descarregar o core.
 
-**Cópia dos descritores.** O array que o core passa no `SET_MEMORY_MAPS` pode não existir mais
-depois da chamada; copiamos os descritores (os ponteiros *dentro* deles continuam válidos enquanto
-o jogo estiver carregado).
+**Cópia dos descritores.** O `libretro.h` manda o front-end guardar a própria cópia do mapa "e do
+seu conteúdo, incluindo strings". Copiamos o array de descritores **e** as strings `addrspace`
+(guardadas em `memory_addrspaces_`, com os ponteiros refeitos para a nossa cópia). A exceção são
+os campos `ptr`: eles apontam para a memória do core, que precisa continuar válida durante a
+sessão.
 
 **Callback C sem "contexto", de novo.** O `rc_libretro` pede a memória do core por um ponteiro de
 função C sem argumento de usuário. É o mesmo problema dos callbacks do libretro (1.2), resolvido
@@ -94,6 +96,22 @@ do mesmo jeito: a função estática usa o `s_active`.
 - O RAIntegration separa "contexto de memória do emulador" das ferramentas que a usam; a nossa
   `MemoryReader` tem o mesmo papel.
 
+### Na revisão do Codex (PR #32)
+
+- **Mapa de um `load_game` rejeitado reaproveitado.** Se o core anunciasse o mapa e depois
+  recusasse o jogo, o próximo jogo herdaria aquele mapa (ponteiros possivelmente inválidos). Agora
+  os descritores são apagados no início de cada `load_game`.
+- **Strings dos descritores não copiadas.** Eu tinha copiado só o array; o contrato pede as
+  strings também. Corrigido (e o meu texto acima sobre a cópia estava incompleto).
+- **"Disponível" olhava só o primeiro byte.** Uma região mapeada pela metade aparecia como
+  disponível. Agora `available` significa "a região inteira pode ser lida".
+- **Mapa vazio com ponteiro nulo:** o Codex achou que `nullptr + 0` era comportamento indefinido.
+  Em C isso é verdade, mas **em C++ é definido** (o resultado é o próprio ponteiro nulo), e
+  `assign(nullptr, nullptr)` é um intervalo vazio válido. Mantivemos uma checagem explícita, que
+  deixa a intenção mais clara, mas não era um bug. Revisões também erram; vale conferir.
+- Cada correção tem um cenário novo no core de teste (mapa vazio, mapa parcial, load que falha
+  depois do mapa, string sobrescrita depois da chamada) e passou no teste de mutação.
+
 ### Problemas encontrados
 
 - Nenhum bug novo; o teste de mutação confirmou as duas proteções: apagar o mapa no `unload`
@@ -108,5 +126,6 @@ do mesmo jeito: a função estática usa o `s_active`.
 3. Por que o viewer e a busca vão depender de `MemoryReader`, e não do `LibretroCore`?
 4. Por que o mapa precisa ser apagado *antes* de descarregar o core, e não depois?
 5. Um valor de 2 bytes começando em `0x1FFFFF` vem de onde?
-6. Exercício: rode o programa com o jogo e veja, na janela Status, as 3 regiões. Depois edite
+6. Por que, além do array de descritores, precisamos copiar as strings `addrspace`?
+7. Exercício: rode o programa com o jogo e veja, na janela Status, as 3 regiões. Depois edite
    `kKnownCores` em `libretro_memory.cpp` removendo o Beetle PSX: o que muda na janela, e por quê?

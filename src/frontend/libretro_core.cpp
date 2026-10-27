@@ -145,6 +145,9 @@ bool LibretroCore::load_game(const std::filesystem::path& game_path, std::string
     }
 
     game_path_ = std::filesystem::absolute(game_path).string();
+    // A map announced by an earlier, rejected load_game must not describe this game.
+    memory_descriptors_.clear();
+    memory_addrspaces_.clear();
     retro_game_info game{.path = game_path_.c_str(), .data = nullptr, .size = 0, .meta = nullptr};
 
     // Disc-based cores (like PS1) read the files themselves and only want the path. Others
@@ -187,6 +190,7 @@ void LibretroCore::unload() {
     // The memory map points into the core's memory: drop it before the core frees that memory.
     memory_.clear();
     memory_descriptors_.clear();
+    memory_addrspaces_.clear();
     if (audio_sink_) {
         audio_sink_->clear();
     }
@@ -376,8 +380,23 @@ bool LibretroCore::environment(unsigned cmd, void* data) {
 
     case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
         // Usually sent during retro_load_game; the map is built right after it (rebuild_memory).
+        // libretro.h: the front-end keeps its own copy of the map "and its contents, including
+        // strings". The `ptr` fields are the exception: they must stay valid for the session.
         const auto* map = static_cast<const retro_memory_map*>(data);
+        memory_descriptors_.clear();
+        memory_addrspaces_.clear();
+        if (map->num_descriptors == 0 || !map->descriptors) {
+            return true; // an empty map: rc_libretro falls back to retro_get_memory_data
+        }
         memory_descriptors_.assign(map->descriptors, map->descriptors + map->num_descriptors);
+        // Sized once before taking c_str(), so the pointers below never move.
+        memory_addrspaces_.resize(memory_descriptors_.size());
+        for (size_t i = 0; i < memory_descriptors_.size(); ++i) {
+            if (const char* name = memory_descriptors_[i].addrspace) {
+                memory_addrspaces_[i] = name;
+                memory_descriptors_[i].addrspace = memory_addrspaces_[i].c_str();
+            }
+        }
         return true;
     }
 

@@ -114,7 +114,7 @@ TEST_CASE("LibretroCore loads the synthetic core and runs frames") {
     CHECK_FALSE(core.system_info().need_fullpath);
 
     const auto& options = core.options().options();
-    REQUIRE(options.size() == 7);
+    REQUIRE(options.size() == 8);
     CHECK(options[0].key == "cw_test_pixel_format");
     CHECK(options[0].value == "0RGB1555");
     REQUIRE(options[0].values.size() == 3);

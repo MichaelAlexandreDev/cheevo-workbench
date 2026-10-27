@@ -22,6 +22,21 @@ constexpr std::array<std::pair<std::string_view, uint32_t>, 4> kKnownCores = {{
     {"pcsx_rearmed_libretro", RC_CONSOLE_PLAYSTATION},
 }};
 
+// True if every address of [start, end] is backed by core memory. rc_libretro may put unmapped
+// "filler" blocks inside a console region, so checking only `start` is not enough.
+bool fully_available(const rc_libretro_memory_regions_t& regions, uint32_t start, uint32_t end) {
+    uint64_t address = start;
+    while (address <= end) {
+        uint32_t avail = 0;
+        if (!rc_libretro_memory_find_avail(&regions, static_cast<uint32_t>(address), &avail) ||
+            avail == 0) {
+            return false;
+        }
+        address += avail;
+    }
+    return true;
+}
+
 void RC_CCONV log_rc_libretro(const char* message) {
     SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "[memory] %s", message);
 }
@@ -75,7 +90,7 @@ std::vector<MemoryRegionInfo> LibretroMemory::regions() const {
     std::vector<MemoryRegionInfo> result;
     const rc_memory_regions_t* console = rc_console_memory_regions(console_id_);
     if (console && console->num_regions > 0) {
-        // The console's documented blocks, each marked available if the core exposes its start.
+        // The console's documented blocks; available = the core exposes every byte of it.
         for (uint32_t i = 0; i < console->num_regions; ++i) {
             const rc_memory_region_t& r = console->region[i];
             if (r.start_address >= size()) {
@@ -85,14 +100,15 @@ std::vector<MemoryRegionInfo> LibretroMemory::regions() const {
                 {.start = r.start_address,
                  .end = r.end_address,
                  .description = r.description ? r.description : "",
-                 .available = rc_libretro_memory_find(&regions_, r.start_address) != nullptr});
+                 .available = r.end_address < size() &&
+                              fully_available(regions_, r.start_address, r.end_address)});
         }
     } else if (size() > 0) {
         // Unknown console: rc_libretro exposed the core's RAM as one flat block.
         result.push_back({.start = 0,
                           .end = size() - 1,
                           .description = "System RAM",
-                          .available = rc_libretro_memory_find(&regions_, 0) != nullptr});
+                          .available = fully_available(regions_, 0, size() - 1)});
     }
     return result;
 }
