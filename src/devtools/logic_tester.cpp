@@ -3,9 +3,12 @@
 #include <rc_error.h>
 #include <rc_runtime.h>
 #include <rc_runtime_types.h>
+#include <rcheevos/rc_internal.h>
+#include <rhash/md5.h>
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 namespace cw {
 
@@ -70,6 +73,143 @@ int RC_CCONV address_is_readable(uint32_t address) {
 void destroy_runtime(rc_runtime_t* runtime) {
     rc_runtime_destroy(runtime);
     delete runtime;
+}
+
+uint32_t read_u32(std::span<const uint8_t> data, size_t offset) {
+    return uint32_t{data[offset]} | uint32_t{data[offset + 1]} << 8 |
+           uint32_t{data[offset + 2]} << 16 | uint32_t{data[offset + 3]} << 24;
+}
+
+void append_u32(std::vector<uint8_t>& data, uint32_t value) {
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+        data.push_back(static_cast<uint8_t>(value >> shift));
+    }
+}
+
+std::array<uint8_t, 16> progress_checksum(std::span<const uint8_t> data) {
+    std::array<uint8_t, 16> digest;
+    md5_state_t checksum;
+    md5_init(&checksum);
+    md5_append(&checksum, data.data(), static_cast<int>(data.size()));
+    md5_finish(&checksum, digest.data());
+    return digest;
+}
+
+void update_progress_checksum(std::vector<uint8_t>& data) {
+    const auto digest = progress_checksum(std::span(data).first(data.size() - 16));
+    std::copy(digest.begin(), digest.end(), data.end() - 16);
+}
+
+const rc_runtime_trigger_t* matching_trigger(const rc_runtime_t& runtime,
+                                             std::span<const uint8_t> data) {
+    for (uint32_t i = 0; i < runtime.trigger_count; ++i) {
+        const auto& entry = runtime.triggers[i];
+        if (entry.trigger && entry.id == read_u32(data, 0) &&
+            std::memcmp(entry.md5, data.data() + 4, 16) == 0) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+bool terminal_state(uint32_t state) {
+    return state == RC_TRIGGER_STATE_INACTIVE || state == RC_TRIGGER_STATE_TRIGGERED ||
+           state == RC_TRIGGER_STATE_DISABLED;
+}
+
+// The pinned sized deserializer checks chunk boundaries, but its condition readers do not.
+// Validate exactly the reads it will perform before handing any file data to those readers.
+bool valid_trigger_progress(const rc_trigger_t& trigger, std::span<const uint8_t> data) {
+    if (data.size() < 8 || read_u32(data, 0) > RC_TRIGGER_STATE_DISABLED) {
+        return false;
+    }
+    size_t offset = 8;
+    const auto check_group = [&](const rc_condset_t* group) {
+        if (data.size() - offset < 4) {
+            return false;
+        }
+        offset += 4; // paused flag
+        for (const rc_condition_t* condition = group->conditions; condition;
+             condition = condition->next) {
+            if (data.size() - offset < 8) {
+                return false;
+            }
+            const uint32_t flags = read_u32(data, offset + 4);
+            offset += 8; // hits and flags
+            const rc_operand_t* operands[] = {&condition->operand1, &condition->operand2};
+            constexpr uint32_t indirect_flags[] = {0x00010000, 0x00100000};
+            for (size_t i = 0; i < 2; ++i) {
+                if (flags & indirect_flags[i]) {
+                    if (!rc_operand_is_memref(operands[i]) || data.size() - offset < 8) {
+                        return false;
+                    }
+                    offset += 8; // indirect value and prior
+                }
+            }
+        }
+        return true;
+    };
+    if (trigger.requirement && !check_group(trigger.requirement)) {
+        return false;
+    }
+    for (const rc_condset_t* group = trigger.alternative; group; group = group->next) {
+        if (!check_group(group)) {
+            return false;
+        }
+    }
+    return offset == data.size();
+}
+
+bool valid_progress(const rc_runtime_t& runtime, std::span<const uint8_t> data) {
+    if (data.size() < 28 || data.size() > LogicTester::kMaxProgressSize ||
+        std::memcmp(data.data(), "RAP\n", 4) != 0) {
+        return false;
+    }
+    size_t offset = 4;
+    while (data.size() - offset >= 8) {
+        const auto header = data.subspan(offset, 8);
+        const size_t size = read_u32(header, 4);
+        offset += 8;
+        if (size > data.size() - offset || size % 4 != 0) {
+            return false;
+        }
+        const auto payload = data.subspan(offset, size);
+        if (std::memcmp(header.data(), "DONE", 4) == 0) {
+            if (size != 16 || offset + size != data.size()) {
+                return false;
+            }
+            const auto digest = progress_checksum(data.first(offset));
+            return std::equal(digest.begin(), digest.end(), payload.begin());
+        }
+        if (std::memcmp(header.data(), "MREF", 4) == 0) {
+            if (size % 16 != 0) {
+                return false;
+            }
+        } else if (std::memcmp(header.data(), "ACHV", 4) == 0) {
+            if (size < 20) {
+                return false;
+            }
+            if (const auto* entry = matching_trigger(runtime, payload);
+                entry && !valid_trigger_progress(*entry->trigger, payload.subspan(20))) {
+                return false;
+            }
+        } else if (std::memcmp(header.data(), "CWST", 4) == 0) {
+            if (size != 28 || !terminal_state(read_u32(payload, 20))) {
+                return false;
+            }
+        } else if (std::memcmp(header.data(), "VARS", 4) == 0 ||
+                   std::memcmp(header.data(), "LBRD", 4) == 0) {
+            // No Rich Presence or leaderboard definitions exist in this tester. Their readers
+            // inspect only the leading count/id before skipping the rest.
+            if (size < 4) {
+                return false;
+            }
+        } else if (std::memcmp(header.data(), "RICH", 4) != 0 && size >= 0x10000) {
+            return false; // rcheevos' limit for unknown extension chunks
+        }
+        offset += size;
+    }
+    return false;
 }
 
 // Runs `call` with rcheevos' callbacks collecting into `events` for `frame`.
@@ -140,6 +280,103 @@ void LogicTester::reset() {
         // The logic parsed when it was added, so it parses again.
         rc_runtime_activate_achievement(runtime_.get(), a.id, a.logic.c_str(), nullptr, 0);
     }
+}
+
+bool LogicTester::serialize_progress(std::vector<uint8_t>& out, std::string& error) const {
+    const uint32_t size = rc_runtime_progress_size(runtime_.get(), nullptr);
+    if (size < 28 || size > kMaxProgressSize) {
+        error = "Runtime progress is too large or could not be measured";
+        return false;
+    }
+    std::vector<uint8_t> data(size);
+    const int result =
+        rc_runtime_serialize_progress_sized(data.data(), size, runtime_.get(), nullptr);
+    if (result != RC_OK) {
+        error = std::string("Could not serialize runtime progress: ") + rc_error_str(result);
+        return false;
+    }
+
+    // The native writer omits Triggered/Disabled/Inactive achievements. Record these offline
+    // test states in unknown RAP chunks, which standard readers skip (runtime_progress.c).
+    const std::vector<uint8_t> done(data.end() - 24, data.end());
+    data.resize(data.size() - 24);
+    for (uint32_t i = 0; i < runtime_->trigger_count; ++i) {
+        const auto& entry = runtime_->triggers[i];
+        if (!entry.trigger || !terminal_state(entry.trigger->state)) {
+            continue;
+        }
+        if (data.size() + 36 + done.size() > kMaxProgressSize) {
+            error = "Runtime progress is too large";
+            return false;
+        }
+        data.insert(data.end(), {'C', 'W', 'S', 'T'});
+        append_u32(data, 28);
+        append_u32(data, entry.id);
+        data.insert(data.end(), entry.md5, entry.md5 + 16);
+        append_u32(data, entry.trigger->state);
+        append_u32(data, entry.trigger->measured_value);
+    }
+    data.insert(data.end(), done.begin(), done.end());
+    update_progress_checksum(data);
+    out = std::move(data);
+    error.clear();
+    return true;
+}
+
+bool LogicTester::deserialize_progress(std::span<const uint8_t> data, std::string& error) {
+    std::unique_ptr<rc_runtime_t, decltype(&destroy_runtime)> restored(new rc_runtime_t,
+                                                                       &destroy_runtime);
+    rc_runtime_init(restored.get());
+    for (const TestedAchievement& achievement : achievements_) {
+        const int result = rc_runtime_activate_achievement(restored.get(), achievement.id,
+                                                           achievement.logic.c_str(), nullptr, 0);
+        if (result != RC_OK) {
+            error = std::string("Could not rebuild runtime: ") + rc_error_str(result);
+            return false;
+        }
+    }
+    if (!valid_progress(*restored, data)) {
+        error = "Invalid or truncated runtime progress";
+        return false;
+    }
+    std::vector<uint8_t> filtered;
+    auto native_data = data;
+    if (rc_memrefs_count_memrefs(restored->memrefs) == 0) {
+        // v12.5.0's MREF reader assumes there is at least one destination memref. A state
+        // from a previous set can contain MREF even after every memory-based test was removed.
+        // The original checksum was validated above; omit only these now-unused values.
+        filtered.assign(data.begin(), data.begin() + 4);
+        for (size_t offset = 4; offset + 8 <= data.size();) {
+            const size_t size = read_u32(data, offset + 4);
+            if (std::memcmp(data.data() + offset, "MREF", 4) != 0) {
+                filtered.insert(filtered.end(), data.begin() + offset,
+                                data.begin() + offset + 8 + size);
+            }
+            offset += 8 + size;
+        }
+        update_progress_checksum(filtered);
+        native_data = filtered;
+    }
+    const int result = rc_runtime_deserialize_progress_sized(
+        restored.get(), native_data.data(), static_cast<uint32_t>(native_data.size()), nullptr);
+    if (result != RC_OK) {
+        error = std::string("Could not restore runtime progress: ") + rc_error_str(result);
+        return false;
+    }
+    for (size_t offset = 4; offset + 8 <= data.size();) {
+        const size_t size = read_u32(data, offset + 4);
+        if (std::memcmp(data.data() + offset, "CWST", 4) == 0) {
+            const auto payload = data.subspan(offset + 8, size);
+            if (const auto* entry = matching_trigger(*restored, payload)) {
+                entry->trigger->state = static_cast<uint8_t>(read_u32(payload, 20));
+                entry->trigger->measured_value = read_u32(payload, 24);
+            }
+        }
+        offset += 8 + size;
+    }
+    runtime_ = std::move(restored);
+    error.clear();
+    return true;
 }
 
 std::vector<LogicEvent> LogicTester::validate_addresses(const MemoryReader& memory,

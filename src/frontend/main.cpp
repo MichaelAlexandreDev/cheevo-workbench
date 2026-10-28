@@ -58,8 +58,8 @@ constexpr const char* kUsage =
     "\n"
     "  --core <core.so>     libretro core to load, e.g. "
     "/usr/lib/libretro/mednafen_psx_libretro.so\n"
-    "  --system <dir>       directory with BIOS files (default: "
-    "~/.local/share/cheevo-workbench/system)\n"
+    "  --system <dir>       BIOS directory; remembered for future launches\n"
+    "                       default: saved selection, then the XDG data/system directory\n"
     "  game                 content to load into the core (needs --core)\n";
 
 struct LaunchOptions {
@@ -195,6 +195,9 @@ struct UiState {
     cw::SessionState session;
     std::filesystem::path last_core_path;
     std::filesystem::path system_dir;
+    bool system_directory_open = false;
+    std::string system_directory_input;
+    std::string system_directory_error;
     std::string last_core_extensions;
     std::string status_message;
     bool status_is_error = false;
@@ -314,11 +317,12 @@ bool input_text_multiline_string(const char* label, std::string& value, const Im
                                      string_input_callback, &value);
 }
 
-std::filesystem::path load_ra_cache_dir(const std::filesystem::path& config_dir) {
+std::filesystem::path load_directory_setting(const std::filesystem::path& config_dir,
+                                             const char* filename) {
     if (config_dir.empty()) {
         return {};
     }
-    std::ifstream input(config_dir / "ra-cache-path.txt");
+    std::ifstream input(config_dir / filename);
     std::string path;
     if (!input || !std::getline(input, path)) {
         return {};
@@ -326,26 +330,32 @@ std::filesystem::path load_ra_cache_dir(const std::filesystem::path& config_dir)
     if (!path.empty() && path.back() == '\r') {
         path.pop_back();
     }
-    return path.empty() ? std::filesystem::path{} : std::filesystem::path(path);
+    const std::filesystem::path directory(path);
+    return directory.is_absolute() ? directory : std::filesystem::path{};
 }
 
-bool save_ra_cache_dir(const std::filesystem::path& config_dir, const std::string& path_text,
-                       std::filesystem::path& saved_path, std::string& error) {
+bool save_directory_setting(const std::filesystem::path& config_dir, const char* filename,
+                            const std::string& path_text, std::filesystem::path& saved_path,
+                            std::string& error) {
     if (config_dir.empty()) {
-        error = "The configuration directory is unavailable; the RACache path cannot be saved.";
+        error = "The configuration directory is unavailable; the path cannot be saved.";
         return false;
     }
     const std::filesystem::path path(path_text);
     if (!path.empty() && !path.is_absolute()) {
-        error = "Enter an absolute path to the RACache directory, or leave it empty.";
+        error = "Enter an absolute directory path, or leave it empty.";
         return false;
     }
     if (!path.empty() && !directory_exists(path)) {
-        error = "The selected RACache directory does not exist.";
+        error = "The selected directory does not exist.";
         return false;
     }
 
-    const std::filesystem::path file = config_dir / "ra-cache-path.txt";
+    if (path_text.find_first_of("\r\n") != std::string::npos) {
+        error = "The directory path cannot contain line breaks.";
+        return false;
+    }
+    const std::filesystem::path file = config_dir / filename;
     std::ofstream output(file, std::ios::binary | std::ios::trunc);
     if (!output) {
         error = "Could not write " + file.string();
@@ -409,6 +419,38 @@ void set_bookmark_message(std::string& message, bool& is_error, bool succeeded,
     }
 }
 
+bool save_bookmark_description(cw::Bookmarks& bookmarks, WatchListUiState& state, uint64_t row_id,
+                               const std::string& description) {
+    const auto found = std::find_if(bookmarks.items().begin(), bookmarks.items().end(),
+                                    [row_id](const auto& item) { return item.row_id == row_id; });
+    if (found != bookmarks.items().end()) {
+        const size_t index = static_cast<size_t>(std::distance(bookmarks.items().begin(), found));
+        std::string error;
+        const bool renamed = bookmarks.set_description(index, description, error);
+        set_bookmark_message(state.message, state.message_is_error, renamed, error,
+                             "Bookmark renamed.", bookmarks.game_id().has_value());
+        if (!renamed) {
+            return false; // Keep the draft available for another save attempt.
+        }
+    }
+    state.dirty_description_ids.erase(row_id);
+    state.description_buffers.erase(row_id);
+    return true;
+}
+
+bool flush_pending_bookmark_descriptions(cw::Bookmarks& bookmarks, WatchListUiState& state) {
+    while (!state.dirty_description_ids.empty()) {
+        const uint64_t row_id = *state.dirty_description_ids.begin();
+        const auto buffer = state.description_buffers.find(row_id);
+        if (buffer == state.description_buffers.end()) {
+            state.dirty_description_ids.erase(row_id);
+        } else if (!save_bookmark_description(bookmarks, state, row_id, buffer->second)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string lowercase_ascii(std::string_view text) {
     std::string result(text);
     std::transform(result.begin(), result.end(), result.begin(), [](unsigned char character) {
@@ -454,7 +496,7 @@ void draw_code_note_load_errors(const cw::CodeNotes& notes) {
 
 // Shift+F1..F4 saves slot 1..4, F1..F4 loads it. RouteGlobal keeps them active in tool windows.
 void handle_state_hotkeys(cw::LibretroCore& core, cw::SaveStates& states, UiState& ui,
-                          Notice& notice) {
+                          Notice& notice, cw::LogicTester& tester) {
     if (!core.is_game_loaded()) {
         return;
     }
@@ -462,16 +504,16 @@ void handle_state_hotkeys(cw::LibretroCore& core, cw::SaveStates& states, UiStat
         const auto key = static_cast<ImGuiKey>(ImGuiKey_F1 + (slot - 1));
         std::string message;
         if (ImGui::Shortcut(ImGuiMod_Shift | key, ImGuiInputFlags_RouteGlobal)) {
-            const bool ok = states.save(core, slot, message);
+            const bool ok = states.save(core, slot, message, &tester);
             report_message(ui, notice, message, ok);
         } else if (ImGui::Shortcut(key, ImGuiInputFlags_RouteGlobal)) {
-            const bool ok = states.load(core, slot, message);
+            const bool ok = states.load(core, slot, message, &tester);
             report_message(ui, notice, message, ok);
         }
     }
 }
 
-enum class DialogKind { OpenCore, OpenGame };
+enum class DialogKind { OpenCore, OpenGame, SystemDirectory };
 
 struct DialogResult {
     DialogKind kind;
@@ -487,7 +529,7 @@ struct DialogRequest {
     std::string filter_name;
     std::string filter_pattern;
     std::string initial_location;
-    SDL_DialogFileFilter filter{};
+    std::array<SDL_DialogFileFilter, 2> filters{};
     std::atomic_bool finished = false;
 };
 
@@ -509,6 +551,10 @@ void SDLCALL on_open_file_dialog(void* userdata, const char* const* filelist, in
     DialogResult result{request.kind, {}, {}};
     if (!filelist) {
         result.error = "SDL file dialog failed";
+        if (const char* detail = SDL_GetError(); detail && *detail) {
+            result.error += ": ";
+            result.error += detail;
+        }
     } else if (filelist[0]) {
         result.path = filelist[0];
     }
@@ -545,12 +591,22 @@ void begin_open_dialog(UiState& ui, DialogQueue& queue, SDL_Window* window, Dial
     request->filter_name = std::move(filter_name);
     request->filter_pattern = std::move(filter_pattern);
     request->initial_location = initial_location.string();
-    request->filter = {request->filter_name.c_str(), request->filter_pattern.c_str()};
+    request->filters = {
+        {{request->filter_name.c_str(), request->filter_pattern.c_str()}, {"All files", "*"}}};
     DialogRequest* callback_data = request.get();
     queue.requests.push_back(std::move(request));
     ui.dialog_pending = true;
+    if (kind == DialogKind::SystemDirectory) {
+        SDL_ShowOpenFolderDialog(on_open_file_dialog, callback_data, window,
+                                 callback_data->initial_location.empty()
+                                     ? nullptr
+                                     : callback_data->initial_location.c_str(),
+                                 false);
+        return;
+    }
     SDL_ShowOpenFileDialog(
-        on_open_file_dialog, callback_data, window, &callback_data->filter, 1,
+        on_open_file_dialog, callback_data, window, callback_data->filters.data(),
+        static_cast<int>(callback_data->filters.size()),
         callback_data->initial_location.empty() ? nullptr : callback_data->initial_location.c_str(),
         false);
 }
@@ -634,7 +690,7 @@ std::string game_filter_pattern(const std::string& valid_extensions) {
 
 void begin_core_dialog(UiState& ui, DialogQueue& queue, SDL_Window* window,
                        const std::filesystem::path& config) {
-    begin_open_dialog(ui, queue, window, DialogKind::OpenCore, "Libretro cores", "so;so.*",
+    begin_open_dialog(ui, queue, window, DialogKind::OpenCore, "Libretro cores", "so",
                       default_core_directory(config));
 }
 
@@ -736,8 +792,12 @@ void handle_dialog_results(UiState& ui, DialogQueue& queue, Notice& notice, cw::
         } else if (!result.path.empty()) {
             if (result.kind == DialogKind::OpenCore) {
                 open_core(ui, notice, core, game_view, recent, result.path);
-            } else {
+            } else if (result.kind == DialogKind::OpenGame) {
                 open_game(ui, notice, core, game_view, recent, result.path);
+            } else {
+                ui.system_directory_open = true;
+                ui.system_directory_input = result.path;
+                ui.system_directory_error.clear();
             }
         }
     }
@@ -848,7 +908,13 @@ std::string gamepad_names(const Gamepads& gamepads) {
     return names.empty() ? "none" : names;
 }
 
-void handle_emulation_hotkeys(UiState& ui, Notice& notice, cw::LibretroCore& core) {
+struct AchievementTesterUi;
+
+void record_logic_events(const std::vector<cw::LogicEvent>& events, const cw::LogicTester& tester,
+                         AchievementTesterUi& state, Notice& notice);
+
+void handle_emulation_hotkeys(UiState& ui, Notice& notice, cw::LibretroCore& core,
+                              cw::LogicTester& tester, AchievementTesterUi& state) {
     if (!core.is_game_loaded()) {
         return;
     }
@@ -862,6 +928,9 @@ void handle_emulation_hotkeys(UiState& ui, Notice& notice, cw::LibretroCore& cor
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_R, ImGuiInputFlags_RouteGlobal)) {
         core.reset();
+        tester.reset();
+        record_logic_events(tester.validate_addresses(core.memory(), core.frame_count()), tester,
+                            state, notice);
         report_message(ui, notice, "Reset emulation", true);
     }
 }
@@ -986,9 +1055,23 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer,
         set_memory_edit_value(viewer, memory);
     }
 
-    ImGui::Text("Selected address: 0x%06X", viewer.selected_address);
-    ImGui::SameLine();
-    if (ImGui::Button("Watch")) {
+    char selected_address[48];
+    std::snprintf(selected_address, sizeof(selected_address), "Selected address: 0x%06X",
+                  viewer.selected_address);
+    const float watch_button_width =
+        ImGui::CalcTextSize("Watch").x + 2.0f * ImGui::GetStyle().FramePadding.x;
+    const float address_row_width = ImGui::CalcTextSize(selected_address).x +
+                                    ImGui::GetStyle().ItemSpacing.x + watch_button_width;
+    const bool watch_fits_beside_address = address_row_width <= ImGui::GetContentRegionAvail().x;
+    if (watch_fits_beside_address) {
+        ImGui::TextUnformatted(selected_address);
+        ImGui::SameLine();
+    } else {
+        ImGui::TextWrapped("%s", selected_address);
+    }
+    const ImVec2 watch_button_size =
+        watch_fits_beside_address ? ImVec2(watch_button_width, 0.0f) : ImVec2(-1.0f, 0.0f);
+    if (ImGui::Button("Watch", watch_button_size)) {
         std::string error;
         const bool added =
             bookmarks.add(viewer.selected_address, viewer.edit_size, viewer.edit_order, {}, error);
@@ -996,34 +1079,49 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer,
                              "Address added to Watch List.", bookmarks.game_id().has_value());
     }
     ImGui::Separator();
+    ImGui::PushTextWrapPos(0.0f);
     draw_memory_values(memory, viewer.selected_address);
+    ImGui::PopTextWrapPos();
     ImGui::Separator();
 
-    ImGui::Text("Edit value (hex)");
-    if (ImGui::BeginCombo("Size",
-                          kMemoryValueSizes[static_cast<size_t>(viewer.edit_size)].second)) {
-        for (const auto& [size, label] : kMemoryValueSizes) {
-            const bool selected = viewer.edit_size == size;
-            if (ImGui::Selectable(label, selected)) {
-                viewer.edit_size = size;
-                if (!has_byte_order(size)) {
-                    viewer.edit_order = cw::ByteOrder::LittleEndian;
+    ImGui::TextWrapped("Edit value (hex)");
+    const auto combo_min_width = [](const char* preview) {
+        const ImGuiStyle& combo_style = ImGui::GetStyle();
+        return ImGui::CalcTextSize(preview).x + ImGui::GetFrameHeight() +
+               2.0f * combo_style.FramePadding.x;
+    };
+    const auto draw_size_combo = [&](float width) {
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted("Size");
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::BeginCombo("##MemoryEditSize",
+                              kMemoryValueSizes[static_cast<size_t>(viewer.edit_size)].second)) {
+            for (const auto& [size, label] : kMemoryValueSizes) {
+                const bool selected = viewer.edit_size == size;
+                if (ImGui::Selectable(label, selected)) {
+                    viewer.edit_size = size;
+                    if (!has_byte_order(size)) {
+                        viewer.edit_order = cw::ByteOrder::LittleEndian;
+                    }
+                    viewer.edit_value_initialized = false;
+                    set_memory_edit_value(viewer, memory);
+                    viewer.message.clear();
                 }
-                viewer.edit_value_initialized = false;
-                set_memory_edit_value(viewer, memory);
-                viewer.message.clear();
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
             }
-            if (selected) {
-                ImGui::SetItemDefaultFocus();
-            }
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
-    }
-
-    if (has_byte_order(viewer.edit_size)) {
+        ImGui::EndGroup();
+    };
+    const auto draw_order_combo = [&](float width) {
         const char* order_label =
             viewer.edit_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
-        if (ImGui::BeginCombo("Byte order", order_label)) {
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted("Byte order");
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::BeginCombo("##MemoryEditByteOrder", order_label)) {
             for (const auto& [order, label] :
                  {std::pair{cw::ByteOrder::LittleEndian, "Little-endian"},
                   std::pair{cw::ByteOrder::BigEndian, "Big-endian"}}) {
@@ -1040,13 +1138,35 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer,
             }
             ImGui::EndCombo();
         }
+        ImGui::EndGroup();
+    };
+    const float fields_width = ImGui::GetContentRegionAvail().x;
+    const char* selected_size = kMemoryValueSizes[static_cast<size_t>(viewer.edit_size)].second;
+    const char* selected_order =
+        viewer.edit_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
+    const float size_min_width = combo_min_width(selected_size);
+    const float order_min_width = combo_min_width(selected_order);
+    const float field_spacing = ImGui::GetStyle().ItemSpacing.x;
+    if (has_byte_order(viewer.edit_size) &&
+        fields_width >= size_min_width + order_min_width + field_spacing) {
+        const float max_size_width = fields_width - order_min_width - field_spacing;
+        const float size_width = std::clamp(fields_width * 0.4f, size_min_width, max_size_width);
+        draw_size_combo(size_width);
+        ImGui::SameLine();
+        draw_order_combo(fields_width - size_width - field_spacing);
+    } else {
+        draw_size_combo(fields_width);
+        if (has_byte_order(viewer.edit_size)) {
+            draw_order_combo(fields_width);
+        }
     }
 
+    ImGui::TextUnformatted("Value (hex)");
     ImGui::SetNextItemWidth(-1.0f);
     const bool submitted = ImGui::InputText(
         "##MemoryEditValue", viewer.value_input, sizeof(viewer.value_input),
         ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
-    if (ImGui::Button("Write value") || submitted) {
+    if (ImGui::Button("Write value", ImVec2(-1.0f, 0.0f)) || submitted) {
         uint32_t value = 0;
         if (!parse_hex_value(viewer.value_input, value)) {
             viewer.message = "Enter a hexadecimal value.";
@@ -1088,7 +1208,9 @@ void draw_memory_value_editor(cw::LibretroCore& core, MemoryViewerState& viewer,
     if (!viewer.message.empty()) {
         const ImVec4 color = viewer.message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
                                                      : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(color, "%s", viewer.message.c_str());
+        ImGui::PopTextWrapPos();
     }
 }
 
@@ -1762,15 +1884,26 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
     }
 
     if (!bookmarks.game_id()) {
-        ImGui::TextDisabled("No game ID: bookmarks are not saved.");
+        ImGui::TextWrapped("No game ID: bookmarks are not saved.");
     }
     if (!bookmarks.error().empty()) {
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", bookmarks.error().c_str());
+        ImGui::PopTextWrapPos();
     }
     const bool cache_directory_ready = !ra_cache_dir.empty() && directory_exists(ra_cache_dir);
     const bool cache_actions_enabled = bookmarks.game_id().has_value() && cache_directory_ready;
+    const ImGuiStyle& control_style = ImGui::GetStyle();
+    const float import_width =
+        ImGui::CalcTextSize("Import from RACache").x + 2.0f * control_style.FramePadding.x;
+    const float export_width =
+        ImGui::CalcTextSize("Export to RACache").x + 2.0f * control_style.FramePadding.x;
+    const float action_spacing = control_style.ItemSpacing.x;
+    const bool actions_fit =
+        ImGui::GetContentRegionAvail().x >= import_width + export_width + action_spacing;
     ImGui::BeginDisabled(!cache_actions_enabled);
-    if (ImGui::Button("Import from RACache")) {
+    const ImVec2 action_size = actions_fit ? ImVec2(0.0f, 0.0f) : ImVec2(-1.0f, 0.0f);
+    if (ImGui::Button("Import from RACache", action_size)) {
         std::string error;
         const auto path = cw::Bookmarks::ra_cache_file_path(ra_cache_dir, *bookmarks.game_id());
         const bool imported = bookmarks.import_file(path, error);
@@ -1781,8 +1914,10 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
             state.dirty_description_ids.clear();
         }
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Export to RACache")) {
+    if (actions_fit) {
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Export to RACache", action_size)) {
         const auto path = cw::Bookmarks::ra_cache_file_path(ra_cache_dir, *bookmarks.game_id());
         std::error_code filesystem_error;
         if (std::filesystem::exists(path, filesystem_error)) {
@@ -1803,8 +1938,9 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
     }
     ImGui::EndDisabled();
     if (!cache_directory_ready) {
-        ImGui::SameLine();
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextDisabled("Set a valid RACache directory in Code Notes to import or export.");
+        ImGui::PopTextWrapPos();
     }
     if (state.confirm_export) {
         ImGui::OpenPopup("Replace RACache bookmarks?");
@@ -1839,32 +1975,45 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
         ImGui::EndPopup();
     }
 
-    ImGui::SetNextItemWidth(150.0f);
+    ImGui::TextUnformatted("Address (hex)");
+    ImGui::SetNextItemWidth(-1.0f);
     const bool submitted = ImGui::InputText(
-        "Address (hex)", state.address_input, sizeof(state.address_input),
+        "##WatchAddress", state.address_input, sizeof(state.address_input),
         ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::SameLine();
-    const char* selected_size = memory_value_size_label(state.size);
-    if (ImGui::BeginCombo("Size", selected_size)) {
-        for (const auto& [size, label] : kMemoryValueSizes) {
-            const bool selected = size == state.size;
-            if (ImGui::Selectable(label, selected)) {
-                state.size = size;
-                if (!has_byte_order(size)) {
-                    state.byte_order = cw::ByteOrder::LittleEndian;
+
+    const auto combo_min_width = [](const char* preview) {
+        const ImGuiStyle& combo_style = ImGui::GetStyle();
+        return ImGui::CalcTextSize(preview).x + ImGui::GetFrameHeight() +
+               2.0f * combo_style.FramePadding.x;
+    };
+    const auto draw_size_combo = [&](float width) {
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted("Size");
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::BeginCombo("##WatchSize", memory_value_size_label(state.size))) {
+            for (const auto& [size, label] : kMemoryValueSizes) {
+                const bool selected = size == state.size;
+                if (ImGui::Selectable(label, selected)) {
+                    state.size = size;
+                    if (!has_byte_order(size)) {
+                        state.byte_order = cw::ByteOrder::LittleEndian;
+                    }
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
                 }
             }
-            if (selected) {
-                ImGui::SetItemDefaultFocus();
-            }
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
-    }
-    if (has_byte_order(state.size)) {
-        ImGui::SameLine();
+        ImGui::EndGroup();
+    };
+    const auto draw_order_combo = [&](float width) {
         const char* order_label =
             state.byte_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
-        if (ImGui::BeginCombo("Byte order", order_label)) {
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted("Byte order");
+        ImGui::SetNextItemWidth(width);
+        if (ImGui::BeginCombo("##WatchByteOrder", order_label)) {
             for (const auto& [order, label] :
                  {std::pair{cw::ByteOrder::LittleEndian, "Little-endian"},
                   std::pair{cw::ByteOrder::BigEndian, "Big-endian"}}) {
@@ -1878,12 +2027,33 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
             }
             ImGui::EndCombo();
         }
+        ImGui::EndGroup();
+    };
+    const float fields_width = ImGui::GetContentRegionAvail().x;
+    const char* selected_size = memory_value_size_label(state.size);
+    const char* selected_order =
+        state.byte_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
+    const float size_min_width = combo_min_width(selected_size);
+    const float order_min_width = combo_min_width(selected_order);
+    const float field_spacing = ImGui::GetStyle().ItemSpacing.x;
+    if (has_byte_order(state.size) &&
+        fields_width >= size_min_width + order_min_width + field_spacing) {
+        const float max_size_width = fields_width - order_min_width - field_spacing;
+        const float size_width = std::clamp(fields_width * 0.4f, size_min_width, max_size_width);
+        draw_size_combo(size_width);
+        ImGui::SameLine();
+        draw_order_combo(fields_width - size_width - field_spacing);
+    } else {
+        draw_size_combo(fields_width);
+        if (has_byte_order(state.size)) {
+            draw_order_combo(fields_width);
+        }
     }
 
-    ImGui::SetNextItemWidth(240.0f);
-    ImGui::InputText("Label (optional)", state.label_input, sizeof(state.label_input));
-    ImGui::SameLine();
-    if (ImGui::Button("Add") || submitted) {
+    ImGui::TextUnformatted("Label (optional)");
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##WatchLabel", state.label_input, sizeof(state.label_input));
+    if (ImGui::Button("Add", ImVec2(-1.0f, 0.0f)) || submitted) {
         uint32_t address = 0;
         if (!parse_hex_value(state.address_input, address)) {
             state.message = "Enter a valid hexadecimal address.";
@@ -1907,15 +2077,20 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
     if (!state.message.empty()) {
         const ImVec4 color = state.message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
                                                     : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(color, "%s", state.message.c_str());
+        ImGui::PopTextWrapPos();
     }
+    ImGui::PushTextWrapPos(0.0f);
     draw_code_note_load_errors(notes);
+    ImGui::PopTextWrapPos();
 
     if (bookmarks.size() == 0) {
         ImGui::TextDisabled("No watched addresses yet.");
     } else if (ImGui::BeginTable("WatchListItems", 9,
                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                     ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+                                     ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX |
+                                     ImGuiTableFlags_ScrollY,
                                  ImVec2(0.0f, 0.0f))) {
         ImGui::TableSetupColumn("Order", ImGuiTableColumnFlags_WidthFixed, 88.0f);
         ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 112.0f);
@@ -1925,7 +2100,13 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
         ImGui::TableSetupColumn("Previous", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Label");
         ImGui::TableSetupColumn("Note");
-        ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, 76.0f);
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float actions_width = ImGui::CalcTextSize("Up").x + ImGui::CalcTextSize("Down").x +
+                                    ImGui::CalcTextSize("Remove").x + 6.0f * style.FramePadding.x +
+                                    2.0f * style.ItemSpacing.x;
+        ImGui::TableSetupColumn("Actions",
+                                ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
+                                actions_width);
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -2024,7 +2205,6 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
                 if (buffer->second != item.description) {
                     rename_requests.emplace_back(item.row_id, buffer->second);
                 }
-                state.dirty_description_ids.erase(item.row_id);
             }
             ImGui::TableSetColumnIndex(7);
             if (item.address) {
@@ -2061,23 +2241,7 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
         ImGui::EndTable();
 
         for (const auto& [row_id, description] : rename_requests) {
-            const auto found =
-                std::find_if(bookmarks.items().begin(), bookmarks.items().end(),
-                             [row_id](const auto& item) { return item.row_id == row_id; });
-            if (found == bookmarks.items().end()) {
-                continue;
-            }
-            const size_t index =
-                static_cast<size_t>(std::distance(bookmarks.items().begin(), found));
-            std::string error;
-            const bool renamed = bookmarks.set_description(index, description, error);
-            set_bookmark_message(state.message, state.message_is_error, renamed, error,
-                                 "Bookmark renamed.", bookmarks.game_id().has_value());
-            if (renamed || !bookmarks.writable()) {
-                state.description_buffers.erase(row_id);
-            } else {
-                state.description_buffers[row_id] = found->description;
-            }
+            save_bookmark_description(bookmarks, state, row_id, description);
         }
         for (const auto& [index, decimal] : format_requests) {
             std::string error;
@@ -2124,7 +2288,8 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
     if (ImGui::Button("Save path")) {
         std::filesystem::path saved_path;
         std::string error;
-        if (save_ra_cache_dir(config_dir, state.ra_cache_path_input, saved_path, error)) {
+        if (save_directory_setting(config_dir, "ra-cache-path.txt", state.ra_cache_path_input,
+                                   saved_path, error)) {
             state.ra_cache_dir = std::move(saved_path);
             state.cache_message = state.ra_cache_dir.empty()
                                       ? "Server notes disabled."
@@ -2453,12 +2618,54 @@ void draw_achievement_tester(cw::LogicTester& tester, AchievementTesterUi& state
     ImGui::End();
 }
 
+void draw_system_directory(UiState& ui, Notice& notice, DialogQueue& dialogs, SDL_Window* window,
+                           const std::filesystem::path& config, const std::filesystem::path& data) {
+    if (!ui.system_directory_open) {
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(520.0f, 240.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("System (BIOS) Directory", &ui.system_directory_open)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextWrapped("Choose the folder containing your BIOS files. The selection is remembered "
+                       "for future launches. Reopen the game after changing this setting.");
+    ImGui::TextUnformatted("Directory (empty uses the default)");
+    ImGui::SetNextItemWidth(-1.0f);
+    input_text_string("##system_directory", ui.system_directory_input);
+    ImGui::BeginDisabled(ui.dialog_pending);
+    if (ImGui::Button("Browse...")) {
+        begin_open_dialog(ui, dialogs, window, DialogKind::SystemDirectory, {}, {},
+                          ui.system_directory_input);
+    }
+    ImGui::EndDisabled();
+    if (ImGui::Button("Save directory")) {
+        std::filesystem::path saved;
+        if (save_directory_setting(config, "system-path.txt", ui.system_directory_input, saved,
+                                   ui.system_directory_error)) {
+            ui.system_dir = std::move(saved);
+            show_notice(notice, "BIOS directory saved. Reopen the game to apply it.", true);
+        }
+    }
+    const auto effective = ui.system_dir.empty()
+                               ? (data.empty() ? std::filesystem::path{} : data / "system")
+                               : ui.system_dir;
+    ImGui::TextWrapped("Next core load: %s",
+                       effective.empty() ? "(unavailable)" : effective.c_str());
+    if (!ui.system_directory_error.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+        ImGui::TextWrapped("%s", ui.system_directory_error.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::End();
+}
+
 void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     cw::SaveStates& save_states, cw::RecentFiles& recent, cw::GameView& game_view,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config,
                     MemoryViewerState& memory_viewer, MemorySearchState& memory_search,
                     WatchListUiState& watch_list, CodeNotesUiState& code_notes,
-                    AchievementTesterUi& achievement_tester) {
+                    AchievementTesterUi& achievement_tester, cw::LogicTester& tester) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -2466,6 +2673,11 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         return;
     }
     if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("System (BIOS) Directory...")) {
+            ui.system_directory_input = ui.system_dir.string();
+            ui.system_directory_error.clear();
+            ui.system_directory_open = true;
+        }
         if (ImGui::MenuItem("Open Core...", nullptr, false, !ui.dialog_pending)) {
             begin_core_dialog(ui, dialogs, window, config);
         }
@@ -2502,6 +2714,9 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         }
         if (ImGui::MenuItem("Reset", "Ctrl+R")) {
             core.reset();
+            tester.reset();
+            record_logic_events(tester.validate_addresses(core.memory(), core.frame_count()),
+                                tester, achievement_tester, notice);
             report_message(ui, notice, "Reset emulation", true);
         }
         if (ImGui::MenuItem("Frame Advance", "N", false, ui.session.paused())) {
@@ -2517,7 +2732,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                 const std::string shortcut = "Shift+F" + std::to_string(slot);
                 if (ImGui::MenuItem(label.c_str(), shortcut.c_str())) {
                     std::string message;
-                    const bool ok = save_states.save(core, slot, message);
+                    const bool ok = save_states.save(core, slot, message, &tester);
                     report_message(ui, notice, message, ok);
                 }
             }
@@ -2533,7 +2748,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     !path.empty() && std::filesystem::is_regular_file(path, error) && !error;
                 if (ImGui::MenuItem(label.c_str(), shortcut.c_str(), false, exists)) {
                     std::string message;
-                    const bool ok = save_states.load(core, slot, message);
+                    const bool ok = save_states.load(core, slot, message, &tester);
                     report_message(ui, notice, message, ok);
                 }
             }
@@ -2636,6 +2851,7 @@ void draw_status_window(const cw::LibretroCore& core, const UiState& ui,
                         const cw::FramePacer& pacer, const cw::JoypadState& input,
                         const Gamepads& gamepads) {
     ImGui::Begin("Status");
+    ImGui::PushTextWrapPos(0.0f);
     ImGui::Text("cheevo-workbench %s", CW_VERSION);
     ImGui::Separator();
 
@@ -2649,6 +2865,7 @@ void draw_status_window(const cw::LibretroCore& core, const UiState& ui,
     } else {
         const auto& info = core.system_info();
         ImGui::Text("Core: %s %s", info.name.c_str(), info.version.c_str());
+        ImGui::Text("BIOS directory: %s", core.system_directory().c_str());
         ImGui::Text("Core options: %zu", core.options().options().size());
         if (!core.is_game_loaded()) {
             ImGui::TextDisabled("No game loaded.");
@@ -2686,6 +2903,7 @@ void draw_status_window(const cw::LibretroCore& core, const UiState& ui,
     ImGui::Text("UI: %.1f FPS", ImGui::GetIO().Framerate);
     ImGui::TextDisabled("P pause, N frame advance, Ctrl+R reset");
     ImGui::TextDisabled("Shift+F1-F4 save, F1-F4 load states");
+    ImGui::PopTextWrapPos();
     ImGui::End();
 }
 
@@ -2774,13 +2992,26 @@ int main(int argc, char** argv) {
     MemorySearchState memory_search;
     WatchListUiState watch_list_ui;
     CodeNotesUiState code_notes_ui;
-    code_notes_ui.ra_cache_dir = load_ra_cache_dir(config);
+    code_notes_ui.ra_cache_dir = load_directory_setting(config, "ra-cache-path.txt");
     code_notes_ui.ra_cache_path_input = code_notes_ui.ra_cache_dir.string();
     cw::Bookmarks bookmarks;
     cw::LogicTester logic_tester;
     AchievementTesterUi achievement_tester_ui;
-    ui.system_dir = launch->system_dir;
-    const std::string load_error = load_from_options(core, *launch);
+    ui.system_dir = launch->system_dir.empty() ? load_directory_setting(config, "system-path.txt")
+                                               : std::filesystem::absolute(launch->system_dir);
+    ui.system_directory_input = ui.system_dir.string();
+    if (!launch->system_dir.empty()) {
+        std::filesystem::path saved;
+        std::string error;
+        if (!save_directory_setting(config, "system-path.txt", ui.system_directory_input, saved,
+                                    error)) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "BIOS directory was not remembered: %s",
+                        error.c_str());
+        }
+    }
+    LaunchOptions configured_launch = *launch;
+    configured_launch.system_dir = ui.system_dir;
+    const std::string load_error = load_from_options(core, configured_launch);
     ui.status_message = load_error;
     ui.status_is_error = !load_error.empty();
     if (!load_error.empty()) {
@@ -2814,11 +3045,14 @@ int main(int argc, char** argv) {
         update_game_identity(ui, core, game_ids);
         sync_code_notes(ui, data, code_notes, code_notes_ui);
         sync_bookmarks(ui, data, core, bookmarks, watch_list_ui);
+        // Synchronize before save/load hotkeys even while paused, so an initial session reset
+        // cannot erase the runtime progress just restored from a slot.
+        sync_achievement_tester(logic_tester, achievement_tester_ui, ui, core, notice);
         if (watch_session_generation != ui.game_session_generation) {
             bookmarks.clear_highlights();
             watch_session_generation = ui.game_session_generation;
         }
-        if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
+        if ((SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) && !ui.quit) {
             SDL_Delay(10);
             continue;
         }
@@ -2831,8 +3065,8 @@ int main(int argc, char** argv) {
         // Typing into an active text field (e.g. the memory viewer) takes the keyboard from the
         // game.
         update_input(joypad_state, gamepads, window_focused, io.WantTextInput);
-        handle_emulation_hotkeys(ui, notice, core);
-        handle_state_hotkeys(core, save_states, ui, notice);
+        handle_emulation_hotkeys(ui, notice, core, logic_tester, achievement_tester_ui);
+        handle_state_hotkeys(core, save_states, ui, notice, logic_tester);
 
         const auto now = cw::FramePacer::Clock::now();
         frame_pacer.set_core_fps(core.is_game_loaded() ? core.av_info().timing.fps : 0.0, now);
@@ -2848,7 +3082,6 @@ int main(int argc, char** argv) {
             const size_t frames_due =
                 ui.session.frames_to_run(frame_pacer, now, queued_audio_seconds);
             const bool discard_audio = ui.session.frame_advance_pending();
-            sync_achievement_tester(logic_tester, achievement_tester_ui, ui, core, notice);
             for (size_t i = 0; i < frames_due; ++i) {
                 core.run_frame(discard_audio);
                 ++frames_run;
@@ -2890,7 +3123,8 @@ int main(int argc, char** argv) {
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
                        memory_viewer, memory_search, watch_list_ui, code_notes_ui,
-                       achievement_tester_ui);
+                       achievement_tester_ui, logic_tester);
+        draw_system_directory(ui, notice, dialogs, window, config, data);
         draw_memory_viewer(core, memory_viewer, bookmarks, code_notes, code_notes_ui);
         draw_memory_search(ui, core, memory_search, memory_viewer, bookmarks, code_notes);
         draw_watch_list(bookmarks, watch_list_ui, memory_viewer, core.memory(), core.frame_count(),
@@ -2902,6 +3136,12 @@ int main(int argc, char** argv) {
         draw_game_identity(ui, game_ids, notice);
         if (ui.show_imgui_demo) {
             ImGui::ShowDemoWindow(&ui.show_imgui_demo);
+        }
+
+        // Save active bookmark edits before leaving the main loop.
+        if (ui.quit && !flush_pending_bookmark_descriptions(bookmarks, watch_list_ui)) {
+            ui.quit = false;
+            show_notice(notice, watch_list_ui.message, false);
         }
 
         ImGui::Render();

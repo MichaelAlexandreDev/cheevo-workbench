@@ -1005,6 +1005,23 @@ registros e descarta a lista inteira se encontrar corrupção.
   interface permaneceu aberta por doze segundos e o core executou 698 frames. O roteiro abaixo no
   rascunho do PR cobre as interações de menu e diálogo que dependem de clique manual.
 
+### No teste do usuário
+
+O filtro `so;so.*` fazia **File → Open Core** falhar antes de abrir a janela. O SDL aceita uma
+lista de extensões ou um único `*`, mas não curingas dentro de uma extensão. Uma chamada direta
+ao SDL reproduziu `Invalid dialog file filters`. Agora o filtro é `so`, com uma segunda opção
+`All files` (`*`) para arquivos com outros sufixos. O callback conserva o texto de `SDL_GetError`
+na mensagem, em vez de esconder o motivo sob um erro genérico. Onze verificações temporárias
+cobriram os filtros, cancelamento, detalhes de erro e a nova preferência de diretório de BIOS.
+
+O diretório de BIOS agora pode ser selecionado em **File → System (BIOS) Directory**. Ele é
+guardado em `system-path.txt` no diretório XDG de configuração; `--system` tem precedência e
+também memoriza a escolha. O caminho realmente passado ao core aparece em Status. A mudança
+vale ao reabrir o conteúdo, preservando a sessão atual até o usuário fazer isso.
+
+Após essas correções, o usuário confirmou que a abertura do core, a seleção da BIOS e a execução
+do jogo funcionaram na interface real.
+
 ### Para fixar
 
 1. Faça um pedido no menu Open Game e cancele. Por que não é preciso restaurar o estado anterior?

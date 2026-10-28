@@ -59,7 +59,7 @@ notes kept inside the tool from day one.
 |---|---|---|---|
 | 3.1 | Game hash with `rc_hash` (PS1 = executable name + contents via `SYSTEM.CNF`); game ID entered manually (no server lookup, hard rule 1). `.bin/.cue` only; CHD is a later option | 1.2 | ✅ |
 | 3.2 | Evaluate logic every frame with `rc_runtime` using in-memory definitions (no `-User.txt` yet); trigger notification; measured values; invalid-address reporting | 2.1, 3.1 | ✅ |
-| 3.3 | Store/restore runtime progress (hit counts) together with save states (`rc_runtime_progress`) | 3.2, 1.6 | ⏳ |
+| 3.3 | Store/restore runtime progress (hit counts) together with save states (`rc_runtime_progress`) | 3.2, 1.6 | ✅ |
 
 **Unlocks for the set:** write a condition and see whether it fires at the right moment.
 

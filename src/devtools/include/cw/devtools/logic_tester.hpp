@@ -2,9 +2,11 @@
 
 #include "cw/devtools/memory.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -63,6 +65,14 @@ class LogicTester {
     // is (re)loaded: nothing counted or disabled against the previous memory carries over. Call
     // validate_addresses() with the new memory afterwards.
     void reset();
+
+    static constexpr size_t kMaxProgressSize = 16u * 1024 * 1024;
+    // Native RAP progress, with an optional CWST extension for offline tester terminal states
+    // that rcheevos otherwise omits. Standard RAP readers ignore this extension.
+    bool serialize_progress(std::vector<uint8_t>& out, std::string& error) const;
+    // Rebuilds against the current definitions. Malformed data leaves the live runtime intact;
+    // unmatched definitions start at Waiting. Revalidate addresses after restoring core memory.
+    bool deserialize_progress(std::span<const uint8_t> data, std::string& error);
 
     // Disables achievements that read addresses `memory` cannot provide and reports them as
     // Disabled events. Call after adding achievements and whenever the memory map changes.

@@ -8,6 +8,8 @@
 
 namespace cw {
 
+class LogicTester;
+
 // Save-state slots on disk: one RASTATE file per game, core and slot, written atomically.
 class SaveStates {
   public:
@@ -22,8 +24,11 @@ class SaveStates {
     std::filesystem::path slot_path(const LibretroCore& core, int slot) const;
 
     // Both return false with a user-facing reason in `message`, or true with a confirmation.
-    bool save(LibretroCore& core, int slot, std::string& message);
-    bool load(LibretroCore& core, int slot, std::string& message);
+    bool save(LibretroCore& core, int slot, std::string& message,
+              const LogicTester* tester = nullptr);
+    // Legacy/malformed progress still permits loading a valid core state, with a warning and
+    // a fresh tester. A rejected core state leaves the tester untouched.
+    bool load(LibretroCore& core, int slot, std::string& message, LogicTester* tester = nullptr);
 
   private:
     std::filesystem::path dir_;
