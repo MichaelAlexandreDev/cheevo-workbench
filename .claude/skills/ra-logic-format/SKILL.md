@@ -80,14 +80,15 @@ RA exposes PS1 main RAM (2 MB) at RA addresses `0x000000–0x1FFFFF`. Console ad
 `0x80000000 + n` maps to RA address `n`. Scratchpad mapping: check `rc_libretro` /
 `rc_console_memory_regions` for the current layout.
 
-## RAIntegration local files (`RACache/Data/`)
+## RAIntegration local files
 
-- `<GameID>-User.txt` — local (unpublished) achievements/leaderboards. Text format, one asset
+- `RACache/Data/<GameID>-User.txt` — local (unpublished) achievements/leaderboards. Text format, one asset
   per line, colon-separated fields with quoted strings; the first line is a version header.
   **Read the RAIntegration serializer before writing this format** — field order and escaping
   matter for round-tripping.
-- `<GameID>-Rich.txt` — Rich Presence script.
-- `<GameID>-Bookmarks.json` — memory bookmarks.
+- `RACache/Data/<GameID>-Rich.txt` — Rich Presence script.
+- `RACache/Bookmarks/<GameID>-Bookmarks.json` — memory bookmarks (separate directory, verified
+  in `reference/RAIntegration/src/services/impl/FileLocalStorage.cpp`).
 
 Compatibility test: a file written by us must load in RAIntegration unchanged, and a file
 written by RAIntegration must round-trip through us byte-for-byte (except where documented).

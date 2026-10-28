@@ -5,6 +5,7 @@ target_link_libraries(cw_not_a_core PRIVATE cw_warnings)
 
 add_executable(cw_tests
     test_main.cpp
+    test_bookmarks.cpp
     test_rcheevos.cpp
     test_libretro_core.cpp
     test_logic_tester.cpp
@@ -23,7 +24,7 @@ add_executable(cw_tests
     test_recent_files.cpp
     test_session_state.cpp
     test_video_frame.cpp)
-target_link_libraries(cw_tests PRIVATE cw_devtools cw_frontend doctest cw_warnings)
+target_link_libraries(cw_tests PRIVATE cw_devtools cw_frontend doctest nlohmann_json cw_warnings)
 target_compile_definitions(cw_tests PRIVATE CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>"
     CW_NOT_A_CORE_PATH="$<TARGET_FILE:cw_not_a_core>")
 add_dependencies(cw_tests cw_test_core cw_not_a_core)
