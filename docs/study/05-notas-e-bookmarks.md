@@ -89,6 +89,31 @@ persistência, ordem, formato, leituras ao vivo, exportação e troca de game ID
 em `/tmp`. A aplicação gráfica também iniciou e confirmou o hash e o ID `18238`; os controles
 interativos da Watch List ainda dependem do teste manual do usuário.
 
+Uma revisão posterior reproduziu duas falhas na interface: fechar o aplicativo com o campo de
+nome ainda ativo perdia a renomeação, e a coluna de ações cortava quase todo o botão `Remove`.
+Agora o encerramento salva os nomes pendentes, inclusive com a Watch List oculta ou o aplicativo
+minimizado. Se a gravação falhar, o aplicativo permanece aberto, mostra o erro e conserva o
+rascunho para uma nova tentativa. A edição continua sendo salva normalmente ao sair do campo.
+A largura da coluna `Actions` é calculada pelo texto dos três botões, pelo espaçamento e pela
+fonte atual; ela não pode ser reduzida manualmente ou por uma largura antiga salva no layout.
+
+Um programa temporário com ImGui, sem janela gráfica e com dados sintéticos, confirmou as duas
+regressões antes da correção. Depois, suas oito verificações passaram, cobrindo também falha de
+gravação com a Watch List oculta, preservação do rascunho e nova tentativa de encerramento.
+
+**No teste do usuário**
+
+Up/Down e persistência dos nomes funcionaram, mas o seletor de tamanho ainda deixava o rótulo
+`Size` fora de um painel estreito. Ajustar apenas a coluna de ações não resolvia os formulários
+acima da tabela. Os campos agora usam a largura disponível e os rótulos ficam acima deles;
+tamanho e byte order compartilham uma linha somente quando cabem. Importar/exportar também
+mudam de linha, e a tabela tem rolagem horizontal dentro do painel quando necessário. O editor
+de valor do Memory Viewer recebeu o mesmo tratamento. Um probe ImGui verificou nove combinações
+de largura (320/480/900 px) e escala de fonte (1/1,5/2), sem exigir que a janela fosse ampliada.
+
+O usuário confirmou o funcionamento do layout corrigido na interface real. Up/Down,
+persistência dos nomes e os ajustes responsivos estão validados manualmente.
+
 **Para fixar**
 
 1. Por que a Watch List guarda seu arquivo automático fora de `RACache`?

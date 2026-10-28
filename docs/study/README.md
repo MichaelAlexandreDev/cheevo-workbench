@@ -30,5 +30,5 @@ ver o todo antes dos detalhes:
 | [00-planejamento.md](00-planejamento.md) | Por que o projeto existe, decisões de arquitetura | ✅ |
 | [01-front-end-minimo.md](01-front-end-minimo.md) | Etapa 1: janela, core libretro, vídeo, áudio, input, save states e menus | ✅ 1.1–1.7 feitas |
 | [02-memoria.md](02-memoria.md) | Etapa 2: memória em endereços do RA, viewer, busca, watch list, code notes | 🟡 2.1–2.5 feitas |
-| [03-rcheevos.md](03-rcheevos.md) | Etapa 3: hash do jogo, lógica ao vivo, progresso nos save states | 🟡 3.1–3.2 feitas |
+| [03-rcheevos.md](03-rcheevos.md) | Etapa 3: hash do jogo, lógica ao vivo, progresso nos save states | ✅ 3.1–3.3 feitas |
 | [05-notas-e-bookmarks.md](05-notas-e-bookmarks.md) | Etapa 5: notas no editor e bookmarks compatíveis com o RAIntegration | 🟡 5.2 feita |

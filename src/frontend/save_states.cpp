@@ -1,5 +1,6 @@
 #include "save_states.hpp"
 
+#include "cw/devtools/logic_tester.hpp"
 #include "save_state.hpp"
 
 #include <fcntl.h>
@@ -18,9 +19,9 @@ namespace cw {
 
 namespace {
 
-// The largest file a valid save can produce: one block at the limit plus headers, padding and
-// a small achievements block. Anything bigger is not a state file and is not read.
-constexpr std::uintmax_t kMaxStateFileSize = kMaxStateBlockSize + 1024 * 1024;
+// Both payload limits plus the RASTATE header, three block headers, and alignment padding.
+constexpr std::uintmax_t kMaxStateFileSize =
+    kMaxStateBlockSize + LogicTester::kMaxProgressSize + 64;
 
 // Keeps a name usable as a single path component.
 std::string sanitize(std::string name) {
@@ -91,7 +92,8 @@ std::filesystem::path SaveStates::slot_path(const LibretroCore& core, int slot) 
     return dir_ / sanitize(game + "-" + core.system_info().name + ".state" + std::to_string(slot));
 }
 
-bool SaveStates::save(LibretroCore& core, int slot, std::string& message) {
+bool SaveStates::save(LibretroCore& core, int slot, std::string& message,
+                      const LogicTester* tester) {
     if (slot < 1 || slot > kSlotCount) {
         message = "Invalid slot " + std::to_string(slot);
         return false;
@@ -114,9 +116,14 @@ bool SaveStates::save(LibretroCore& core, int slot, std::string& message) {
                   std::to_string(core_data.size()) + " bytes)";
         return false;
     }
+    std::vector<uint8_t> progress;
+    if (tester && !tester->serialize_progress(progress, error)) {
+        message = "Could not save slot " + std::to_string(slot) + ": " + error;
+        return false;
+    }
     std::error_code ec;
     std::filesystem::create_directories(dir_, ec);
-    if (!write_file_atomically(path, write_state_file(core_data), error)) {
+    if (!write_file_atomically(path, write_state_file(core_data, progress), error)) {
         message = "Could not save slot " + std::to_string(slot) + ": " + error;
         return false;
     }
@@ -125,7 +132,7 @@ bool SaveStates::save(LibretroCore& core, int slot, std::string& message) {
     return true;
 }
 
-bool SaveStates::load(LibretroCore& core, int slot, std::string& message) {
+bool SaveStates::load(LibretroCore& core, int slot, std::string& message, LogicTester* tester) {
     if (slot < 1 || slot > kSlotCount) {
         message = "Invalid slot " + std::to_string(slot);
         return false;
@@ -170,6 +177,16 @@ bool SaveStates::load(LibretroCore& core, int slot, std::string& message) {
         return false;
     }
     message = "Loaded slot " + std::to_string(slot);
+    if (tester) {
+        if (!contents->achievements ||
+            !tester->deserialize_progress(*contents->achievements, error)) {
+            tester->reset();
+            message += "; runtime progress reset (";
+            message += contents->achievements ? error : "no achievement progress in this state";
+            message += ")";
+        }
+        tester->validate_addresses(core.memory(), core.frame_count());
+    }
     return true;
 }
 

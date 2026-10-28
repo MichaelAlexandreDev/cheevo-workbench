@@ -67,6 +67,7 @@ class LibretroCore {
     bool is_game_loaded() const { return game_loaded_; }
     const SystemInfo& system_info() const { return system_info_; }
     const std::string& core_path() const { return core_path_; }
+    const std::string& system_directory() const { return system_dir_; }
     const retro_system_av_info& av_info() const { return av_info_; }
     retro_pixel_format pixel_format() const { return pixel_format_; }
     const CoreOptions& options() const { return options_; }

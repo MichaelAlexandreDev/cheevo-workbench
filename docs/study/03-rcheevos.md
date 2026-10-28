@@ -1,12 +1,98 @@
 # 03 · Etapa 3: rcheevos ao vivo
 
-Objetivo da etapa: identificar o jogo e testar lógica de conquistas ao vivo, enquanto você joga.
+Objetivo da etapa: identificar o jogo, testar lógica de conquistas ao vivo e manter o progresso do
+tester junto dos save states enquanto você joga.
 
 | Subetapa | Conteúdo | Status |
 |---|---|---|
 | 3.1 | Hash do jogo + game ID digitado | ✅ |
 | 3.2 | Avaliar lógica a cada frame | ✅ |
-| 3.3 | Progresso das conquistas junto com o save state | ⏳ |
+| 3.3 | Progresso do tester junto com o save state | ✅ |
+
+## Resumo da etapa
+
+### O que a etapa entregou
+
+A ferramenta calcula offline o hash de um jogo, deixa você informar o game ID e testar lógicas de
+conquistas a cada frame emulado. O estado do tester — como hits acumulados e conquistas já
+disparadas — acompanha o core ao salvar e carregar um slot. Nada é desbloqueado ou enviado ao
+servidor.
+
+### Mapa do código
+
+```mermaid
+flowchart LR
+    Main["main.cpp<br/>identidade, loop e menus"]
+    Hash["game_hash<br/>hash offline com rc_hash"]
+    IDs["GameIds<br/>game ID local por hash"]
+    Memory["LibretroMemory<br/>endereços do RA"]
+    Tester["LogicTester<br/>definições e rc_runtime"]
+    States["SaveStates<br/>slots"]
+    Container["save_state<br/>RASTATE: MEM + ACHV + END"]
+    RC["rcheevos v12.5.0<br/>runtime e RAP"]
+    Main --> Hash
+    Main --> IDs
+    Main --> Memory
+    Main --> Tester
+    Main --> States
+    Memory --> Tester
+    Tester <--> RC
+    States --> Container
+    States --> Tester
+```
+
+### O caminho de um frame e de um save state
+
+1. `main.cpp` sincroniza as definições do Achievement Tester com a sessão antes dos atalhos, mesmo
+   pausada. Assim, o primeiro quadro da interface depois de carregar um slot não apaga o progresso
+   recém-restaurado.
+2. Quando a emulação roda, o core executa `retro_run()` e atualiza a memória. Logo depois,
+   `LogicTester::do_frame` chama `rc_runtime_do_frame` uma vez para aquele frame emulado; os eventos
+   resultantes atualizam a janela e o log.
+3. Ao salvar, `SaveStates` serializa os bytes do core e, se recebeu um `LogicTester`, o progresso
+   RAP. `save_state` os grava no container `RASTATE`: `MEM ` para o core, `ACHV` para o progresso e
+   `END ` para terminar a lista.
+4. Ao carregar, o arquivo é validado e o core precisa aceitar o bloco `MEM ` primeiro. Só então o
+   tester tenta restaurar o bloco `ACHV` e revalida os endereços contra a memória restaurada. Esse
+   caminho não avalia um frame extra.
+5. Se o estado não tiver progresso ou o bloco for inválido, o core ainda carrega; o tester é
+   reiniciado e a mensagem informa `runtime progress reset`.
+
+### Conceitos mais importantes
+
+- [O hash identifica o executável do jogo, e o game ID é local (3.1)](#31--hash-do-jogo--game-id)
+- [O rcheevos avalia a lógica depois de cada frame emulado (3.2)](#32--testar-lógica-de-conquista-ao-vivo)
+- [O runtime guarda estado de avaliação separado dos bytes do core (3.3)](#33--progresso-do-tester-junto-com-o-save-state)
+- [O progresso só combina com a mesma definição: ID e MD5 da lógica (3.3)](#33--progresso-do-tester-junto-com-o-save-state)
+- [O RAP fica dentro do bloco `ACHV` do container `RASTATE` (3.3)](#33--progresso-do-tester-junto-com-o-save-state)
+- [Validar formatos antes de chamar leitores de estado protege a memória (3.3)](#33--progresso-do-tester-junto-com-o-save-state)
+- [Carregar memória antes de revalidar endereços mantém o runtime coerente (3.3)](#33--progresso-do-tester-junto-com-o-save-state)
+
+### Lições das revisões
+
+- Um leitor que recebe o tamanho do buffer ainda pode fazer leituras internas sem checar cada
+  limite. O pré-validador precisa refletir o formato que o leitor realmente percorre.
+- Não altere o runtime ativo enquanto ainda está validando dados externos: reconstrua um runtime
+  temporário e só o instale depois que a restauração inteira der certo.
+- O progresso está associado à definição, não apenas ao número da conquista. Comparar o ID e o MD5
+  da lógica evita transferir hits para uma lógica que mudou.
+- O estado do core e o estado do tester têm destinos separados no arquivo. Um bloco `ACHV` inválido
+  não precisa impedir a restauração válida do jogo, mas o usuário precisa saber que o progresso foi
+  reiniciado.
+- A etapa testa lógica localmente. O programa não chama a API do RetroAchievements e não publica
+  conquistas.
+
+### Prova da etapa
+
+1. Por que o game ID é digitado mesmo depois de calcular o hash?
+2. Em que ponto `rc_runtime_do_frame` é chamado, e por que o loop da interface não deve decidir a
+   contagem de hits?
+3. O que vai nos blocos `MEM ` e `ACHV` de um save `RASTATE`?
+4. Que duas informações precisam combinar para reaproveitar o progresso de uma conquista?
+5. Se a lógica mudou depois de salvar, em que estado essa definição começa ao carregar?
+6. Por que o core precisa ser restaurado antes de revalidar os endereços das conquistas?
+7. O que acontece com o jogo e com o tester quando o save não contém progresso ou tem um bloco
+   `ACHV` inválido?
 
 ---
 
@@ -215,3 +301,163 @@ revisão abaixo por que um simples `rc_runtime_reset` não bastava.)
 5. Exercício: no jogo, abra o Achievement Tester e adicione `d0xH00E200!=0xH00E200` ("o byte
    mudou desde o frame anterior"). Ele dispara? Aperte Re-arm, pause (P) e avance (N): em qual
    frame dispara de novo?
+
+---
+
+## 3.3 · Progresso do tester junto com o save state
+
+### O que foi feito
+
+- `LogicTester::serialize_progress` e `deserialize_progress` (`src/devtools/logic_tester.*`)
+  gravam e restauram o progresso RAP do `rc_runtime` usando as APIs com tamanho explícito do
+  rcheevos v12.5.0.
+- O progresso de cada definição só volta quando o ID e o MD5 da lógica combinam. Uma definição
+  alterada ou nova começa em Waiting; uma que já não existe é ignorada. Hits, valores medidos e
+  referências de memória necessárias à avaliação acompanham as definições compatíveis.
+- `SaveStates` (`src/frontend/save_states.*`) recebe o tester como parâmetro opcional. A UI o passa
+  tanto pelo menu States quanto pelos atalhos. O container `RASTATE` existente guarda os dados do
+  core em `MEM ` e, quando disponíveis, os dados RAP em `ACHV`, seguido por `END `.
+- O escritor nativo do rcheevos não preserva os estados Triggered e Disabled. Para o tester offline,
+  um chunk de extensão `CWST` no RAP guarda ID, MD5 da lógica, estado terminal e valor medido. O
+  checksum RAP é recalculado; o leitor padrão do rcheevos ignora esse chunk desconhecido pequeno.
+- O carregamento só tenta alterar o runtime depois que `LibretroCore::unserialize_state` aceita os
+  dados do core.
+  Sem `ACHV` ou com progresso inválido, o core ainda carrega, o tester é reiniciado e a mensagem
+  explica `runtime progress reset`. Depois da restauração, os endereços são revalidados contra a
+  memória do core carregada. A restauração não avalia um frame adicional.
+- O método do tester constrói um runtime temporário, restaura e valida tudo nele e só então troca o
+  runtime ativo. Se a validação falhar, o método mantém o estado ativo intacto. Títulos e textos de
+  lógica continuam pertencendo à sessão do tester; persistir definições é o passo 4.2, ainda fora
+  deste escopo. Tudo permanece local e offline.
+
+### Conceitos
+
+**Dois formatos dentro do mesmo arquivo.** `RASTATE` é o envelope do save state: tem uma versão e
+blocos com tag, tamanho little-endian, conteúdo e padding de 8 bytes. O bloco `MEM ` contém o estado
+do core libretro. O bloco `ACHV` contém outro formato: RAP, usado pelo rcheevos para progresso de
+runtime. São responsabilidades separadas: restaurar o core volta a memória do jogo; restaurar RAP
+volta a avaliação das lógicas.
+
+**A identidade de uma definição é mais que o ID.** IDs organizam os itens da sessão, mas podem ser
+reutilizados quando uma definição é editada. O MD5 calculado pelo rcheevos representa a lógica
+em texto. Exigir ID e MD5 iguais evita colocar os hits antigos numa condição que mudou. O runtime
+novo começa todas as definições em Waiting; somente as que combinam recebem o progresso salvo.
+
+**O que o formato RAP guarda.** O RAP começa com `RAP\n` e termina com o chunk `DONE`, que inclui o
+MD5 dos bytes anteriores. Os chunks conhecidos incluem referências de memória (`MREF`) e estado de
+conquista (`ACHV`). O rcheevos v12.5.0 oferece variantes *sized* das funções de serialize e
+deserialize para que o tamanho do buffer seja informado.
+
+**Por que existe `CWST`.** O escritor nativo salva progresso ativo, mas deixa de fora conquistas
+Triggered e Disabled. O tester precisa reproduzir esses estados localmente ao recarregar um slot.
+Cada `CWST` é uma extensão privada pequena que leitores RAP padrão ignoram; o seu conteúdo só é
+aplicado se ID e MD5 ainda identificam uma definição presente. Ela não altera a lista de conquistas
+nem significa que algo foi desbloqueado no serviço.
+
+**Uma função `sized` ainda precisa de pré-validação.** No rcheevos compilado, o leitor RAP limita
+os chunks ao buffer fornecido, mas seus leitores internos de condições percorrem os dados com
+leituras que não conferem, uma a uma, o tamanho do chunk. Por isso o tester valida antes os campos,
+grupos, condições e valores indiretos que o leitor interno vai consumir. Só depois passa os bytes
+ao rcheevos.
+
+**A ordem do load protege os dois estados.** O core é carregado primeiro porque o runtime precisa
+validar endereços no mapa de memória resultante. O runtime temporário evita estado parcial se o RAP
+estiver truncado ou corrompido. Na integração com `SaveStates`, uma falha de progresso vira um
+reset deliberado com aviso; ela não invalida um estado do core que já foi restaurado.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/devtools/include/cw/devtools/logic_tester.hpp`: contrato de serialize/deserialize e
+   limites de tamanho.
+2. `src/devtools/logic_tester.cpp`: pré-validação, correspondência ID + MD5, extensão `CWST` e
+   runtime temporário.
+3. `src/frontend/save_state.hpp` e `src/frontend/save_state.cpp`: blocos `RASTATE`, alinhamento,
+   validação dos limites e leitura do bloco `ACHV`.
+4. `src/frontend/save_states.hpp` e `src/frontend/save_states.cpp`: ordem de salvar/carregar, falha
+   de progresso, aviso e revalidação de endereços.
+5. `src/frontend/main.cpp`: sincronização do tester antes dos atalhos, chamada após cada frame e
+   passagem do tester pelos menus e hotkeys de save/load.
+6. `third_party/rcheevos/src/rcheevos/runtime_progress.c`: formato RAP, API *sized*, checksum e
+   comportamento dos chunks desconhecidos no v12.5.0 compilado.
+7. Referência de formato, sem copiar código: `reference/RALibretro/src/States.cpp`,
+   `saveState`/`loadRAState1`, que confirma o envelope `RASTATE` e as tags `MEM `, `ACHV`, `SCRN` e
+   `END `.
+
+### O que aprendemos com a referência
+
+- O RALibretro grava o bloco de dados do core em `MEM ` e, se houver captura de conquistas, o RAP
+  em `ACHV`; os blocos terminam em `END `. A ferramenta segue esse envelope e aceita arquivos
+  `RASTATE` sem dados de conquistas, além de estados crus de core.
+- O runtime do rcheevos escreve `RAP\n`, seus próprios chunks e um checksum final. No v12.5.0, um
+  chunk desconhecido menor que 64 KiB é pulado, então `CWST` pode preservar estado exclusivo do
+  tester sem mudar os chunks nativos.
+- `rc_runtime_deserialize_progress_sized` pode resetar o runtime que recebe quando encontra dados
+  inválidos. A restauração em runtime temporário contém esse efeito: se falhar, o runtime que o
+  usuário estava usando não foi parcialmente substituído.
+- Seguimos os formatos confirmados nas referências, mas não copiamos código do RALibretro nem do
+  rcheevos.
+
+### Problemas encontrados
+
+- O leitor RAP com tamanho explícito verifica os limites dos chunks, mas a leitura de condições
+  dentro de `ACHV` não aplica todos esses limites. O pré-validador do tester passou a espelhar os
+  campos que o parser de lógica construiu para impedir que um buffer malformado cause leitura fora
+  do chunk antes da validação do checksum.
+- A mudança de runtime precisa ser atômica. Como o desserializador do rcheevos reseta o runtime que
+  recebe ao falhar, chamar essa função no runtime ativo perderia o progresso anterior; agora ele só
+  é chamado no runtime temporário.
+- Se todas as definições que leem memória forem removidas, o leitor `MREF` do rcheevos ainda
+  presume uma referência de destino. Após validar o checksum original, o wrapper retira esse
+  chunk agora sem uso de uma cópia temporária e recalcula seu checksum antes de chamar o leitor.
+  Isso também permite carregar um estado antigo quando só restam condições constantes.
+
+### Na revisão
+
+A implementação foi revisada junto dos testes preparados pela Luna. Um dos testes de corrupção
+alterava um valor indireto em vez da flag da condição seguinte; corrigimos o deslocamento para
+que ele realmente exigisse bytes ausentes. Os testes estruturais recalculam o checksum depois de
+corromper os campos, verificando a proteção dos limites além da simples rejeição por MD5.
+
+A validação terminou com 142 casos e 7.388 verificações passando, build sem warnings,
+`clang-format` e ASan+UBSan. LeakSanitizer ficou desativado pela limitação de ptrace do sandbox.
+Uma mutação em um objeto compilado temporário, retirando a restauração de progresso, fez o teste
+de restauração falhar em cinco verificações; o código do repositório não foi modificado por essa
+mutação.
+
+Um programa auxiliar executou 608 frames com o Beetle PSX e Twilight Syndrome. Restaurou os
+2 MB de RAM e a sequência `2/5 → Triggered → carregar → 2/5 → Triggered`, além dos estados
+terminais e da carga legada sem `ACHV`. Outro programa com ImGui, sem janela gráfica, confirmou
+**Shift+F4**, **F4** com a sessão pausada e **Ctrl+R** reiniciando o progresso. Os slots de teste
+ficaram em `/tmp`; a interação na interface real continua aguardando o teste do usuário.
+
+### No teste do usuário
+
+O teste `2/5 → Triggered → carregar → 2/5` funcionou na interface. Porém, carregar o slot 1
+antigo deixava o jogo sem responder enquanto o contador de frames continuava avançando; a intro
+também estava diferente. Reproduzimos o comportamento com os slots 1 e 4, somente lendo os
+arquivos: sem a BIOS original no diretório de sistema, o core aceitava o save e emitia frames
+idênticos mesmo com botões pressionados. Com a pasta de BIOS real, os mesmos slots voltavam a
+produzir imagens diferentes. Os saves originais não foram modificados.
+
+O comando de teste sem `--system` usava a pasta XDG padrão vazia, em vez da pasta fornecida nos
+testes anteriores. O Beetle PSX instalado permite iniciar sem o firmware original, então aceitar
+o jogo ou o save não demonstrava que a mesma BIOS estava sendo usada. Agora a pasta é selecionada
+em **File → System (BIOS) Directory**, fica salva para os próximos lançamentos e aparece em
+Status. Informar `--system` também memoriza a seleção. Depois de mudar a pasta, é necessário
+reabrir o jogo antes de carregar o slot.
+
+Depois de configurar a BIOS e reabrir o jogo, o usuário confirmou o funcionamento da intro e do
+carregamento dos slots, sem o travamento relatado. A etapa 3.3 está validada manualmente.
+
+### Para fixar
+
+1. No `RASTATE`, que dados vão em `MEM ` e quais vão em `ACHV`? Por que o RAP não substitui o estado
+   do core?
+2. Por que uma lógica com o mesmo ID, mas MD5 diferente, começa em Waiting?
+3. Qual parte da leitura o pré-validador confere além do tamanho total do buffer?
+4. Exercício manual: pause o jogo, adicione `M:1=1.5.` no Achievement Tester e tire o foco do
+   campo de texto. Avance dois frames com **N**, confira `2 / 5` e salve com **Shift+F4**.
+   Avance três frames até disparar; carregue com **F4** e confira que voltou a `2 / 5` e Active.
+   Avance mais três frames e confirme que dispara de novo. Depois salve já em Triggered e
+   recarregue para conferir que o estado terminal também persiste. A lógica conta frames sem
+   ler ou alterar a RAM; escolha outro slot se precisar conservar o conteúdo do slot 4.
