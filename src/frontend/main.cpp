@@ -2946,7 +2946,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // Synchronize UI presentation; the core has its own frame pacer.
+    // A compositor may throttle swaps for covered windows. Emulation shares this thread, so
+    // only wait for VSync while focused; use a bounded clock cadence otherwise.
+    bool synchronized_swaps = SDL_GL_SetSwapInterval(1);
+    int applied_swap_interval = synchronized_swaps ? 1 : -1;
+    auto next_swap_attempt = cw::FramePacer::Clock::time_point{};
+    if (!synchronized_swaps) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_VIDEO, "VSync unavailable: %s", SDL_GetError());
+    }
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -3028,6 +3035,7 @@ int main(int argc, char** argv) {
     cw::FramePacer frame_pacer;
     uint64_t watch_session_generation = ui.game_session_generation;
     while (!ui.quit) {
+        const auto iteration_start = cw::FramePacer::Clock::now();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
@@ -3052,16 +3060,28 @@ int main(int argc, char** argv) {
             bookmarks.clear_highlights();
             watch_session_generation = ui.game_session_generation;
         }
-        if ((SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) && !ui.quit) {
-            SDL_Delay(10);
-            continue;
+        const auto window_flags = SDL_GetWindowFlags(window);
+        const bool minimized = (window_flags & SDL_WINDOW_MINIMIZED) != 0;
+        const bool window_focused = !minimized && (window_flags & SDL_WINDOW_INPUT_FOCUS) != 0;
+        const int desired_swap_interval = window_focused ? 1 : 0;
+        if (desired_swap_interval != applied_swap_interval &&
+            iteration_start >= next_swap_attempt) {
+            if (SDL_GL_SetSwapInterval(desired_swap_interval)) {
+                applied_swap_interval = desired_swap_interval;
+                synchronized_swaps = desired_swap_interval != 0;
+            } else {
+                SDL_LogWarn(SDL_LOG_CATEGORY_VIDEO, "Could not change VSync: %s", SDL_GetError());
+                next_swap_attempt = iteration_start + std::chrono::seconds(1);
+            }
         }
+        // If a driver refuses immediate swaps, keep audio running and defer background drawing
+        // rather than calling a swap that can still block on an occluded window.
+        const bool can_present = !minimized && (window_focused || applied_swap_interval == 0);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
-        const bool window_focused = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
         // Typing into an active text field (e.g. the memory viewer) takes the keyboard from the
         // game.
         update_input(joypad_state, gamepads, window_focused, io.WantTextInput);
@@ -3098,7 +3118,7 @@ int main(int argc, char** argv) {
                 ui.session.finish_frame_advance();
             }
         }
-        if (frames_run > 0) {
+        if (frames_run > 0 && can_present) {
             game_view.update(core.video_frame());
         }
         if (frame_pacer.record_frames(frames_run, cw::FramePacer::Clock::now())) {
@@ -3145,12 +3165,25 @@ int main(int argc, char** argv) {
         }
 
         ImGui::Render();
-        glViewport(0, 0, static_cast<int>(io.DisplaySize.x * io.DisplayFramebufferScale.x),
-                   static_cast<int>(io.DisplaySize.y * io.DisplayFramebufferScale.y));
-        glClearColor(0.08f, 0.08f, 0.10f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        SDL_GL_SwapWindow(window);
+        if (can_present) {
+            glViewport(0, 0, static_cast<int>(io.DisplaySize.x * io.DisplayFramebufferScale.x),
+                       static_cast<int>(io.DisplaySize.y * io.DisplayFramebufferScale.y));
+            glClearColor(0.08f, 0.08f, 0.10f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            SDL_GL_SwapWindow(window);
+        }
+        if (!synchronized_swaps || !can_present) {
+            // Keep the event/emulation loop responsive without spinning when the audio queue
+            // is full. FramePacer still controls the core's speed from audio or its own clock.
+            constexpr auto kUiPeriod = std::chrono::nanoseconds(1'000'000'000 / 120);
+            const auto remaining = kUiPeriod - (cw::FramePacer::Clock::now() - iteration_start);
+            if (remaining > decltype(remaining)::zero()) {
+                const auto nanoseconds =
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(remaining);
+                SDL_DelayNS(static_cast<Uint64>(nanoseconds.count()));
+            }
+        }
     }
 
     core.unload(); // before the GL context goes away

@@ -613,8 +613,10 @@ contexto é comportamento indefinido.
   transição para pausado; o chamador limpa a fila de áudio. Os controles de pausa continuam sendo
   parte do passo 1.7.
 - A janela Status mostra dispositivo ou erro, áudio enfileirado em milissegundos, modo de ritmo e
-  FPS medido a partir dos frames realmente executados. O vsync segue limitando a apresentação da
-  interface, enquanto o pacer determina quando o core roda.
+  FPS medido a partir dos frames realmente executados. O vsync limita a apresentação enquanto a
+  janela tem foco. Sem foco, o loop usa uma cadência de no máximo 120 Hz, enquanto o pacer
+  determina quando o core roda. Minimizar mantém a emulação e o áudio ativos, sem apresentar
+  frames; `P` continua sendo a pausa explícita.
 - O core sintético agora testa áudio em lote e por amostra, a sequência estéreo determinística e a
   notificação de mudança da taxa de amostragem.
 
@@ -698,6 +700,40 @@ normal. No modo de áudio, o tamanho máximo do lote e a fila limitada dão o me
   dividindo a *diferença* de frames pela *diferença* de tempo, o que cancela a inicialização), a
   velocidade real foi **59,75 fps para 59,94 pedidos (−0,3%)**, dentro do erro da própria medição.
   Lição: uma janela curta de medição pode mostrar um problema que não existe.
+
+### Correção posterior: áudio ao trocar de janela
+
+O relato de som lento e chiado ao ir para o terminal revelou uma dependência do loop:
+`SDL_GL_SwapWindow()` roda na mesma thread que `retro_run()`. Se a apresentação de uma janela
+encoberta esperar demais, o core deixa de produzir áudio a tempo. A fila alvo é de apenas 50 ms,
+e executar até três frames por volta não compensa um loop que cai para cinco voltas por segundo.
+Nesse exemplo, o teto seria 15 frames emulados por segundo; cinco voltas é uma ilustração,
+não uma medição do problema relatado. O dispositivo continua consumindo amostras enquanto a
+thread espera, causando **audio underrun** quando a fila esvazia: faltam amostras para reproduzir.
+
+Agora a perda de foco solicita `SDL_GL_SetSwapInterval(0)` e limita o loop a 120 Hz pelo relógio,
+com `SDL_DelayNS()` no tempo restante de cada iteração. Isso limita o trabalho da interface;
+o FPS do core continua controlado pelo `FramePacer`, que usa a fila de áudio ou o relógio.
+Ao recuperar o foco, restaura `SDL_GL_SetSwapInterval(1)`. Se o driver recusar intervalo zero,
+a apresentação em segundo plano fica suspensa até confirmar a configuração, com nova tentativa
+a cada segundo.
+Isso também cobre o estado desconhecido após uma falha na configuração inicial do vsync.
+A antiga saída antecipada ao minimizar foi removida, pois interrompia a produção de áudio.
+
+Um teste temporário instrumentou o loop real com o core sintético e áudio SDL `dummy`, usando
+estados de foco/minimização injetados e uma janela de cobertura real. Sem foco, mediu 61,1 FPS;
+minimizado, 60,0 FPS. Após 750 ms de estabilização por fase, a fila não esvaziou e seu mínimo
+ficou próximo de 27 ms. A pausa explícita executou zero frames, e a retomada voltou ao ritmo
+normal. Isso verifica o agendamento; o backend `dummy` não valida o som no dispositivo real.
+
+Uma segunda execução injetou falhas na configuração inicial do vsync e na primeira solicitação
+de intervalo zero. O fallback manteve cerca de 60 FPS sem foco e minimizado, sem esvaziar a fila
+após a estabilização. Os 142 testes existentes também passaram, incluindo a execução com
+AddressSanitizer e UndefinedBehaviorSanitizer (sem LeakSanitizer nesse ambiente).
+
+**Validação manual:** depois de testar a versão corrigida no seu ambiente, o usuário confirmou
+que o problema foi resolvido. A espera da apresentação não deve determinar o ritmo da emulação
+quando a janela está em segundo plano; a pausa continua sendo uma ação explícita com `P`.
 
 ### Para fixar
 
