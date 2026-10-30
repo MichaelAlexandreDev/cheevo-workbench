@@ -40,6 +40,27 @@ struct TestedAchievement {
     uint32_t id = 0;
     std::string title;
     std::string logic;
+    std::optional<uint64_t> last_frame;
+};
+
+// Copies of the runtime's cached results. No evaluation or hit counting happens when read.
+// Conditions follow textual order, even though rcheevos stores them in execution order.
+struct ConditionStatus {
+    bool has_comparison = false;
+    bool is_true = false;
+    bool caused_reset = false;
+    uint32_t current_hits = 0;
+    uint32_t required_hits = 0;
+};
+struct ConditionGroupStatus {
+    bool paused = false;
+    std::vector<ConditionStatus> conditions;
+};
+struct AchievementStatus {
+    LogicState state = LogicState::Inactive;
+    std::optional<uint64_t> last_frame;
+    // Always includes Core at index zero, including an empty Core.
+    std::vector<ConditionGroupStatus> groups;
 };
 
 // Tests achievement logic against live memory with rcheevos' rc_runtime, entirely offline:
@@ -85,6 +106,7 @@ class LogicTester {
     LogicState state(uint32_t id) const;
     // Current and target value of a measured achievement ("M:" condition), if it has one.
     std::optional<std::pair<uint32_t, uint32_t>> measured(uint32_t id) const;
+    std::optional<AchievementStatus> snapshot(uint32_t id) const;
 
   private:
     std::unique_ptr<rc_runtime_t, void (*)(rc_runtime_t*)> runtime_;

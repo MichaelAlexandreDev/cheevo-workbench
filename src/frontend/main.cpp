@@ -1,11 +1,13 @@
 // cheevo-workbench entry point: creates the SDL3 window with an OpenGL context, loads the
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
+#include "achievement_editor_window.hpp"
 #include "cw/devtools/bookmarks.hpp"
 #include "cw/devtools/code_notes.hpp"
 #include "cw/devtools/game_hash.hpp"
 #include "cw/devtools/logic_tester.hpp"
 #include "cw/devtools/memory_search.hpp"
+#include "cw/devtools/user_file.hpp"
 #include "frame_pacer.hpp"
 #include "game_ids.hpp"
 #include "game_view.hpp"
@@ -2283,8 +2285,23 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
         return;
     }
 
-    input_text_string("RACache directory", state.ra_cache_path_input);
-    ImGui::SameLine();
+    const auto disabled_wrapped = [](const char* text) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", text);
+        ImGui::PopStyleColor();
+    };
+    ImGui::TextWrapped("RACache directory");
+    const float save_width =
+        ImGui::CalcTextSize("Save path").x + 2 * ImGui::GetStyle().FramePadding.x;
+    const bool inline_save =
+        ImGui::GetContentRegionAvail().x >=
+        ImGui::GetFontSize() * 18 + save_width + ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetNextItemWidth(inline_save ? ImGui::GetContentRegionAvail().x - save_width -
+                                              ImGui::GetStyle().ItemSpacing.x
+                                        : -FLT_MIN);
+    input_text_string("##ra_cache_directory", state.ra_cache_path_input);
+    if (inline_save)
+        ImGui::SameLine();
     if (ImGui::Button("Save path")) {
         std::filesystem::path saved_path;
         std::string error;
@@ -2301,21 +2318,44 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
             state.cache_message_is_error = true;
         }
     }
-    ImGui::TextDisabled(
+    disabled_wrapped(
         "Use the RACache folder that contains Data/; leave empty to disable server notes.");
     if (!state.cache_message.empty()) {
         const ImVec4 color = state.cache_message_is_error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
                                                           : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(color, "%s", state.cache_message.c_str());
+        ImGui::PopTextWrapPos();
     }
     if (!notes.game_id()) {
-        ImGui::TextDisabled("Defina o game ID na janela Status.");
+        disabled_wrapped("Set the game ID in Status.");
         ImGui::End();
         return;
     }
     ImGui::Text("Game ID: %u", *notes.game_id());
+    ImGui::PushTextWrapPos(0.0f);
     draw_code_note_load_errors(notes);
-    input_text_string("Filter", state.filter);
+    ImGui::PopTextWrapPos();
+    ImGui::TextUnformatted("Filter");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    input_text_string("##code_notes_filter", state.filter);
+
+    const float address_width = ImGui::CalcTextSize("0xFFFFFFFF").x;
+    const float note_width = ImGui::GetFontSize() * 20;
+    const float origin_width =
+        std::min(ImGui::GetFontSize() * 14,
+                 std::max(ImGui::CalcTextSize("Origin").x,
+                          ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize -
+                              2 * ImGui::GetStyle().CellPadding.x));
+    const float change_width = ImGui::CalcTextSize("Changed").x;
+    const float copy_width = ImGui::CalcTextSize("Copy").x + 2 * ImGui::GetStyle().FramePadding.x;
+    const float all_width =
+        address_width + note_width + origin_width + 6 * ImGui::GetStyle().CellPadding.x + 4;
+    const float publish_width = address_width + note_width + change_width + copy_width +
+                                8 * ImGui::GetStyle().CellPadding.x + 5;
+    constexpr auto table_flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                 ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX |
+                                 ImGuiTableFlags_ScrollY;
 
     const auto open_note = [&viewer, &memory](const cw::CodeNote& note) {
         jump_to_memory_address(viewer, memory, note.address);
@@ -2342,14 +2382,19 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
             });
 
             if (rows.empty()) {
-                ImGui::TextDisabled("No code notes for this game yet.");
-            } else if (ImGui::BeginTable("AllCodeNotes", 3,
-                                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                             ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
-                                         ImVec2(0.0f, 0.0f))) {
-                ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-                ImGui::TableSetupColumn("Note");
-                ImGui::TableSetupColumn("Origin", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+                disabled_wrapped("No code notes for this game yet.");
+            } else if (ImGui::BeginTable(
+                           "AllCodeNotes", 3, table_flags,
+                           ImVec2(0.0f, std::max(ImGui::GetTextLineHeightWithSpacing() * 4,
+                                                 ImGui::GetContentRegionAvail().y)),
+                           std::max(ImGui::GetContentRegionAvail().x, all_width))) {
+                ImGui::TableSetupColumn(
+                    "Address", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
+                    address_width);
+                ImGui::TableSetupColumn("Note", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn(
+                    "Origin", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
+                    origin_width);
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableHeadersRow();
                 for (size_t i = 0; i < rows.size(); ++i) {
@@ -2370,7 +2415,7 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
                     ImGui::TextWrapped("%s", row.note->note.c_str());
                     ImGui::TableSetColumnIndex(2);
                     if (row.server && !row.note->author.empty()) {
-                        ImGui::Text("Server (%s)", row.note->author.c_str());
+                        ImGui::TextWrapped("Server (%s)", row.note->author.c_str());
                     } else {
                         ImGui::TextUnformatted(origin.c_str());
                     }
@@ -2382,23 +2427,29 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
         }
         if (ImGui::BeginTabItem("To publish")) {
             const std::vector<cw::CodeNote> notes_to_publish = notes.notes_to_publish();
-            ImGui::TextDisabled(
+            disabled_wrapped(
                 "Copy each new or changed note into RAIntegration. This tool never uploads notes.");
             if (!notes.server_error().empty()) {
-                ImGui::TextDisabled("Fix the server cache JSON before comparing notes to publish.");
+                disabled_wrapped("Fix the server cache JSON before comparing notes to publish.");
             } else if (!notes.user_error().empty()) {
-                ImGui::TextDisabled(
-                    "Fix the workbench notes JSON before comparing notes to publish.");
+                disabled_wrapped("Fix the workbench notes JSON before comparing notes to publish.");
             } else if (notes_to_publish.empty()) {
-                ImGui::TextDisabled("There are no new or changed notes to publish.");
-            } else if (ImGui::BeginTable("PublishCodeNotes", 4,
-                                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                             ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
-                                         ImVec2(0.0f, 0.0f))) {
-                ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-                ImGui::TableSetupColumn("Note");
-                ImGui::TableSetupColumn("Change", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-                ImGui::TableSetupColumn("Copy", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+                disabled_wrapped("There are no new or changed notes to publish.");
+            } else if (ImGui::BeginTable(
+                           "PublishCodeNotes", 4, table_flags,
+                           ImVec2(0.0f, std::max(ImGui::GetTextLineHeightWithSpacing() * 4,
+                                                 ImGui::GetContentRegionAvail().y)),
+                           std::max(ImGui::GetContentRegionAvail().x, publish_width))) {
+                ImGui::TableSetupColumn(
+                    "Address", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
+                    address_width);
+                ImGui::TableSetupColumn("Note", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn(
+                    "Change", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
+                    change_width);
+                ImGui::TableSetupColumn(
+                    "Copy", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
+                    copy_width);
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableHeadersRow();
                 for (size_t i = 0; i < notes_to_publish.size(); ++i) {
@@ -2665,7 +2716,8 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     DialogQueue& dialogs, SDL_Window* window, const std::filesystem::path& config,
                     MemoryViewerState& memory_viewer, MemorySearchState& memory_search,
                     WatchListUiState& watch_list, CodeNotesUiState& code_notes,
-                    AchievementTesterUi& achievement_tester, cw::LogicTester& tester) {
+                    AchievementTesterUi& achievement_tester, cw::LogicTester& tester,
+                    bool& achievement_editor_open) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -2762,6 +2814,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         ImGui::MenuItem("Watch List", nullptr, &watch_list.open);
         ImGui::MenuItem("Code Notes", nullptr, &code_notes.open);
         ImGui::MenuItem("Achievement Tester", nullptr, &achievement_tester.open);
+        ImGui::MenuItem("Achievement Editor", nullptr, &achievement_editor_open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
         ImGui::EndMenu();
     }
@@ -3004,6 +3057,7 @@ int main(int argc, char** argv) {
     cw::Bookmarks bookmarks;
     cw::LogicTester logic_tester;
     AchievementTesterUi achievement_tester_ui;
+    cw::AchievementEditorWindow achievement_editor(logic_tester, code_notes);
     ui.system_dir = launch->system_dir.empty() ? load_directory_setting(config, "system-path.txt")
                                                : std::filesystem::absolute(launch->system_dir);
     ui.system_directory_input = ui.system_dir.string();
@@ -3055,6 +3109,8 @@ int main(int argc, char** argv) {
         sync_bookmarks(ui, data, core, bookmarks, watch_list_ui);
         // Synchronize before save/load hotkeys even while paused, so an initial session reset
         // cannot erase the runtime progress just restored from a slot.
+        achievement_editor.sync_live(ui.game_session_generation, core.is_game_loaded(),
+                                     core.memory());
         sync_achievement_tester(logic_tester, achievement_tester_ui, ui, core, notice);
         if (watch_session_generation != ui.game_session_generation) {
             bookmarks.clear_highlights();
@@ -3085,8 +3141,10 @@ int main(int argc, char** argv) {
         // Typing into an active text field (e.g. the memory viewer) takes the keyboard from the
         // game.
         update_input(joypad_state, gamepads, window_focused, io.WantTextInput);
-        handle_emulation_hotkeys(ui, notice, core, logic_tester, achievement_tester_ui);
-        handle_state_hotkeys(core, save_states, ui, notice, logic_tester);
+        if (!io.WantTextInput) {
+            handle_emulation_hotkeys(ui, notice, core, logic_tester, achievement_tester_ui);
+            handle_state_hotkeys(core, save_states, ui, notice, logic_tester);
+        }
 
         const auto now = cw::FramePacer::Clock::now();
         frame_pacer.set_core_fps(core.is_game_loaded() ? core.av_info().timing.fps : 0.0, now);
@@ -3143,7 +3201,7 @@ int main(int argc, char** argv) {
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
                        memory_viewer, memory_search, watch_list_ui, code_notes_ui,
-                       achievement_tester_ui, logic_tester);
+                       achievement_tester_ui, logic_tester, achievement_editor.open);
         draw_system_directory(ui, notice, dialogs, window, config, data);
         draw_memory_viewer(core, memory_viewer, bookmarks, code_notes, code_notes_ui);
         draw_memory_search(ui, core, memory_search, memory_viewer, bookmarks, code_notes);
@@ -3151,6 +3209,20 @@ int main(int argc, char** argv) {
                         code_notes, code_notes_ui.ra_cache_dir);
         draw_code_notes_window(code_notes, code_notes_ui, config, memory_viewer, core.memory());
         draw_achievement_tester(logic_tester, achievement_tester_ui, core, notice);
+        const auto editor_file =
+            ui.game_id ? (code_notes_ui.ra_cache_dir.empty()
+                              ? (data.empty()
+                                     ? std::filesystem::path{}
+                                     : data / "sets" / (std::to_string(*ui.game_id) + "-User.txt"))
+                              : cw::ra_user_file_path(code_notes_ui.ra_cache_dir, *ui.game_id))
+                       : std::filesystem::path{};
+        // A menu may have replaced content after this iteration's emulation frames.
+        achievement_editor.sync_live(ui.game_session_generation, core.is_game_loaded(),
+                                     core.memory());
+        achievement_editor.draw(editor_file,
+                                core.is_game_loaded()
+                                    ? std::filesystem::path(core.game_path()).stem().string()
+                                    : std::string{});
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);
         draw_game_identity(ui, game_ids, notice);
@@ -3158,6 +3230,10 @@ int main(int argc, char** argv) {
             ImGui::ShowDemoWindow(&ui.show_imgui_demo);
         }
 
+        if (achievement_editor.take_quit_request())
+            ui.quit = true;
+        if (ui.quit && !achievement_editor.allow_quit())
+            ui.quit = false;
         // Save active bookmark edits before leaving the main loop.
         if (ui.quit && !flush_pending_bookmark_descriptions(bookmarks, watch_list_ui)) {
             ui.quit = false;

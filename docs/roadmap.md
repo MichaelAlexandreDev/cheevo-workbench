@@ -69,8 +69,8 @@ notes kept inside the tool from day one.
 |---|---|---|---|
 | 4.1 | Editable logic model (conditions, flags, sizes, operands, hit targets, Core + Alt groups) and serializer; round-trip tests string → model → identical string, checked against rcheevos parsing | 3.2 | ✅ |
 | 4.2 | Read/write `RACache/Data/<GameID>-User.txt` (version line, achievements, leaderboards), verified against RAIntegration's reader/writer; atomic writes | 4.1 | ✅ |
-| 4.3 | Editor UI: asset list; condition table (flag, type, size, address, comparison, value, hits); Core/Alt tabs; title, description, points | 4.1, 4.2 | ⏳ |
-| 4.4 | Live view: per-condition true/false and current hit counts every frame (as RAIntegration shows) | 4.3, 3.2 | ⏳ |
+| 4.3 | Editor UI: asset list; condition table (flag, type, size, address, comparison, value, hits); Core/Alt tabs; title, description, points | 4.1, 4.2 | ✅ — implemented; merge approved after partial manual testing |
+| 4.4 | Live view: per-condition true/false and current hit counts every frame (as RAIntegration shows) | 4.3, 3.2 | ✅ — implemented; merge approved after partial manual testing |
 
 **Unlocks for the set:** the whole set can be developed on Linux; the file opens in the official
 RAIntegration for upload.
@@ -79,7 +79,7 @@ RAIntegration for upload.
 
 | Step | Scope | Depends on | Status |
 |---|---|---|---|
-| 5.1 | Code notes (from 2.5) shown in the achievement editor next to each address, and editable from there | 2.5, 4.3 | ⏳ |
+| 5.1 | Code notes (from 2.5) shown in the achievement editor next to each address, and editable from there | 2.5, 4.3 | ✅ — implemented; merge approved after partial manual testing |
 | 5.2 | Bookmarks: `RACache/Bookmarks/<GameID>-Bookmarks.json` (separate folder, see RAIntegration `FileLocalStorage.cpp`) | 2.4, 3.1 | ✅ — advanced before 3.3 at the user's request |
 
 ## Milestone 6 — Rich Presence + leaderboards

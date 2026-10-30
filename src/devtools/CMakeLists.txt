@@ -2,9 +2,12 @@
 # formats). It must not depend on SDL, OpenGL or the front-end, so it can be unit-tested with
 # synthetic memory buffers.
 add_library(cw_devtools STATIC
+    achievement_editor.cpp
     achievement_logic.cpp
     bookmarks.cpp
+    code_note_draft.cpp
     code_notes.cpp
+    editor_live_test.cpp
     file_checks.cpp
     game_hash.cpp
     logic_tester.cpp

@@ -21,6 +21,7 @@ target_link_libraries(cw_frontend
 
 # The application: SDL3 window, OpenGL rendering and Dear ImGui UI.
 add_executable(cheevo-workbench
+    achievement_editor_window.cpp
     game_view.cpp
     main.cpp)
 target_link_libraries(cheevo-workbench PRIVATE

@@ -40,6 +40,8 @@ class CodeNotes {
     const std::vector<CodeNote>& server_notes() const { return server_notes_; }
     const std::string& user_error() const { return user_error_; }
     const std::string& server_error() const { return server_error_; }
+    // Reloading can change the backing paths even when the game ID is unchanged.
+    uint64_t session_version() const { return session_version_; }
 
     const CodeNote* user_note_at(uint32_t address) const;
     const CodeNote* server_note_at(uint32_t address) const;
@@ -68,6 +70,7 @@ class CodeNotes {
     std::vector<CodeNote> server_notes_;
     std::string user_error_;
     std::string server_error_;
+    uint64_t session_version_ = 0;
 };
 
 } // namespace cw

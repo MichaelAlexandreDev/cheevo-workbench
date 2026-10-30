@@ -3,12 +3,70 @@
 Objetivo da etapa: editar conquistas no Linux e produzir arquivos locais compatíveis com o
 RAIntegration, para publicação posterior pela ferramenta oficial.
 
+## Resumo da etapa
+
+### O que a etapa entregou
+
+O workbench permite criar conquistas locais: metadados, condições, flags, operandos, alvos de
+hits e grupos Core/Alt. A sessão salva arquivos compatíveis com o RAIntegration e testa a
+conquista selecionada contra a memória emulada. O usuário aprovou o merge após testes parciais;
+o ajuste mais recente do layout de Code Notes ainda aguarda confirmação manual.
+
+### Mapa do código
+
+```mermaid
+flowchart LR
+    Window[AchievementEditorWindow] --> Editor[AchievementEditor]
+    Editor --> Model[AchievementLogic]
+    Editor --> Store[UserFileStore]
+    Store --> File[GameID-User.txt]
+    Window --> Live[EditorLiveTest]
+    Live --> Runtime[LogicTester / rcheevos]
+    Memory[Memória após cada frame] --> Runtime
+    Runtime --> View[Snapshots de condições e hits]
+```
+
+### O caminho de um frame
+
+1. O front-end executa o core e disponibiliza sua memória.
+2. O runtime compartilhado avalia as definições uma única vez por frame emulado.
+3. O editor busca um snapshot por ID, sem executar outra avaliação durante o desenho.
+4. Core/Alts exibem comparações armazenadas e hits próprios das condições.
+5. Mudanças de lógica ou de identidade encerram o teste anterior. Save mantém seu progresso;
+   save states preservam o progresso pelo runtime da etapa 3.3.
+
+### Os conceitos mais importantes
+
+- Modelo editável separado do runtime: 4.1.
+- Preservação textual e gramática verificada na biblioteca compilada: 4.1–4.2.
+- Documento com registros conhecidos e linhas preservadas: 4.2.
+- Gravação atômica e recusa de substituição de arquivo alterado externamente: 4.2.
+- Rascunho válido versus texto de input ainda rejeitado: 4.3.
+- Identidade de seleção diferente de índice e de revisão visual: 4.3–4.4.
+- Comparação bruta, alvo de hits e resultado da cadeia: 4.4.
+
+### Lições das revisões
+
+O runtime reorganiza o armazenamento, mas seu encadeamento mantém a ordem textual. Recarregar
+um documento pode substituir uma conquista por outra idêntica no mesmo índice. Um número
+inválido não pode desaparecer quando o usuário troca um tipo. Alterar uma flag não autoriza
+apagar permanentemente o alvo oculto. As revisões e os probes de interação cobriram esses casos,
+além de Save/Reload, Core/Alt, saída com mudanças e falhas de gravação.
+
+### Prova da etapa
+
+1. Por que o modelo não guarda ponteiros para condições do runtime?
+2. O que impede salvar um rascunho contendo um endereço digitado como `zz`?
+3. Por que uma comparação pode estar falsa com o alvo de hits completo?
+4. Como Reload difere de Save para a identidade do teste ao vivo?
+5. Qual informação do arquivo local precisa ser preservada mesmo sem edição na UI?
+
 | Subetapa | Conteúdo | Status |
 |---|---|---|
 | 4.1 | Modelo editável de lógica e serializador | ✅ |
 | 4.2 | Leitura e escrita de `-User.txt` | ✅ |
-| 4.3 | Interface do editor | ⏳ |
-| 4.4 | Estado de cada condição ao vivo | ⏳ |
+| 4.3 | Interface do editor | ✅ — implementada; merge aprovado após teste parcial |
+| 4.4 | Estado de cada condição ao vivo | ✅ — implementada; merge aprovado após teste parcial |
 
 ## 4.1 · Modelo editável de lógica
 
@@ -295,3 +353,283 @@ use `cmake -S . -B build`, `cmake --build build -j` e
 5. Qual é a diferença entre substituição atômica e impedir qualquer escrita concorrente?
 6. Exercício: carregue uma fixture sintética com uma conquista e uma linha desconhecida; altere
    os pontos para 10, salve e confirme que só o campo editado mudou e a linha desconhecida ficou intacta.
+
+## 4.3 · Interface do editor de conquistas
+
+### O que foi feito
+
+A janela **View → Achievement Editor** abre ou cria um arquivo local, lista as conquistas e
+permite editar título, descrição, pontos, tipo e condições. A tabela oferece flag, tipo/tamanho
+para cada operando, endereço ou valor, comparação/operação e alvo de hits. Há abas Core/Alt,
+inclusão/remoção de grupos e inclusão, remoção e movimentação de condições.
+
+`Current game` sugere `RACache/Data/<GameID>-User.txt` quando há um RACache configurado; caso
+contrário, usa `$XDG_DATA_HOME/cheevo-workbench/sets/<GameID>-User.txt`. O game ID precisa estar
+associado para esse botão ficar disponível. Também é possível digitar qualquer caminho de
+arquivo local e usar `Open / Create`, mesmo sem jogo carregado. Apenas abrir um arquivo ausente
+não o cria no disco; a escrita exige `Save`.
+
+O alvo carregado aparece abaixo do campo de caminho. A sessão de edição não muda automaticamente
+quando outro jogo é aberto. `Save` escreve nesse alvo fixo; digitar outro caminho sozinho não
+redireciona a gravação. Abrir explicitamente outro arquivo, recarregar ou sair com alterações
+pendentes oferece **Save / Discard / Cancel**. Falha de escrita mantém a sessão aberta.
+
+Leaderboards e registros opacos existentes no arquivo são preservados. A edição de leaderboards
+fica para a 6.2; o estado de cada condição ao vivo fica para a 4.4. Não há uploads nem alterações
+na memória do jogo pelo editor.
+
+### Conceitos
+
+**A sessão de edição é testável sem interface.** `AchievementEditor` fica em `cw_devtools` e
+controla o documento, a seleção, as alterações pendentes e a gravação pela 4.2. O frontend cuida
+dos widgets e dos textos temporários. Um carregamento usa uma instância candidata de store;
+se o novo arquivo falhar, o documento anterior continua disponível. Trocar de seleção mantém
+as alterações de cada conquista no documento, inclusive um modelo que ainda esteja inválido.
+A validação do arquivo inteiro impede que uma condição inválida em outra conquista seja ignorada.
+
+**Texto em edição não é necessariamente um número.** Enquanto você digita um endereço, pode
+haver um texto incompleto ou inválido. O widget mantém esse texto, junto com seu diagnóstico,
+sem substituir silenciosamente pelo último valor válido. Nessa situação, salvar, trocar de
+conquista e reestruturar os grupos ficam bloqueados. É preciso corrigir ou escolher
+`Revert invalid inputs`, que restaura os números já aceitos no modelo. Endereços usam hexadecimal;
+constantes inteiras usam decimal ou prefixo `0x`; um alvo de hits vazio significa ausência de alvo.
+
+**Ocultar um operando não significa apagá-lo.** Entrar em uma flag modificadora pode esconder o
+operando direito e os hits. A janela guarda esses campos temporariamente e os restaura se você
+voltar a uma comparação, sem serializar um operando que não pertence à operação atual. Esse cache
+acompanha a condição ao mover linhas ou remover outros grupos. Salvar mantém a aba atual; abrir
+outro documento ou selecionar outra conquista reinicializa os buffers da interface.
+
+**Identidade de widget precisa sobreviver ao texto exibido.** A lista usa um ID estável separado
+do título, e os campos de condições incluem o índice do grupo e da linha no escopo de ID. Editar
+um título não troca a identidade do item. Ações que mudam a seleção ou a estrutura só são
+executadas depois de desenhar os campos, para consumir primeiro a edição daquele frame.
+
+**Foco de texto deve proteger a emulação.** O joypad já desconsiderava o teclado enquanto
+`WantTextInput` estava ativo. Agora os handlers dos atalhos P, N, Ctrl+R e F1–F4 também são
+ignorados nesse estado. Assim, escrever uma descrição não pausa, avança, reseta ou carrega um
+estado do jogo. O Ctrl+Q continua solicitando saída, mas passa pela confirmação de alterações.
+O gamepad físico mantém o comportamento anterior.
+
+**Uma tabela grande precisa de uma área de rolagem.** Os controles superiores quebram de linha
+quando necessário, e a janela flutuante se limita à área disponível no aplicativo. A tabela tem
+rolagem horizontal para alcançar todas as colunas em larguras pequenas e rolagem vertical para
+as condições. `ImGuiListClipper` evita desenhar todas as linhas de uma lista longa em cada frame.
+
+### Arquivos para ler (nesta ordem)
+
+1. `src/devtools/include/cw/devtools/achievement_editor.hpp` e `achievement_editor.cpp`: sessão,
+   seleção, validação e escrita.
+2. `src/frontend/achievement_editor_window.hpp` e `achievement_editor_window.cpp`: janela, tabela,
+   buffers, transições de operandos e confirmação de alterações.
+3. `src/frontend/main.cpp`: menu View, sugestão de arquivo por game ID e proteção de teclado/saída.
+4. `tests/test_achievement_editor.cpp`: salvar/reabrir, seleção, exclusão e falhas.
+5. `reference/RAIntegration/src/ui/viewmodels/TriggerConditionViewModel.cpp`: visibilidade de
+   alvos, conversões de tipo e mudanças de flag/operador.
+6. `reference/RAIntegration/src/ui/viewmodels/AssetEditorViewModel.cpp` e
+   `src/ui/win32/AssetEditorDialog.cpp`: modelo e colunas do editor de referência.
+7. `reference/RAIntegration/src/devkit/data/models/AchievementModel.cpp`: opções de pontos
+   reconhecidas pela ferramenta de referência.
+
+### O que aprendemos com a referência
+
+- Apenas AddSource, SubSource, AddAddress e Remember usam operadores modificadores. Outras flags
+  continuam usando comparações; não basta testar se a flag é diferente de Standard.
+- Ao mudar uma constante para memória, a largura pode ser herdada do outro operando de memória.
+  Quando ele não é de memória, usamos 32 bits; a largura continua explícita e editável.
+- O seletor de pontos oferece 0, 1, 2, 3, 4, 5, 10, 25, 50 e 100. Valores antigos fora dessa lista
+  continuam preservados até o usuário escolher outro valor, conforme a política da 4.2.
+- Funções legadas `@name` são preservadas e mostradas, mas não são oferecidas para nova autoria,
+  pois o rcheevos não implementa sua execução. Recall não tem endereço nem tamanho editável.
+
+### Problemas encontrados
+
+- **A nova Alt podia receber foco tarde demais:** o clique em `Add condition` ainda podia agir no
+  Core. O teste de interação pegou isso. A aba solicitada agora tem estado separado da aba que
+  efetivamente está sendo desenhada, e o teste confirma em qual grupo a condição foi inserida.
+- **Alternar flags apagava o alvo oculto:** a revisão levou ao cache de alvo/hits, inclusive sua
+  movimentação com as condições. O teste alterna a flag, move a linha, remove outra e verifica
+  que o valor 5 e o alvo de três hits retornam à condição correta.
+- **Um valor inválido podia desaparecer ao mudar tipo:** transições que descartariam o buffer
+  ficam bloqueadas até correção ou reversão explícita. O teste verifica que Save e Delete não
+  escondem o erro de uma entrada inválida.
+- **Salvar voltava ao Core:** a limpeza dos buffers após Save agora preserva a seleção de grupo.
+  Um teste salva na Alt e inclui outra condição para confirmar que a Alt continua ativa.
+- **A janela podia ultrapassar a altura disponível:** a conferência gráfica mostrou o corte.
+  Foram acrescentados limites ao viewport, ajuste de posição e quebra de linha dos botões.
+- **Confundir leitura de rascunho com gramática válida:** uma sugestão de revisão afirmava que
+  hits sem operador seriam aceitos. A biblioteca compilada retornou `Invalid operator` para
+  `0xH1.3.`, `A:0xH1.3.` e `M:0xH1.3.`; a comparação legada `A:0xH1=0.3.` é aceita e já é
+  preservada. Mantivemos a gramática verificada, em vez de aceitar a sugestão sem testá-la.
+
+### Verificação e teste manual
+
+A suíte tem **195 casos e 8.956 asserções**, com seis casos novos da sessão de edição. Build,
+formatação e testes passaram, incluindo ASan/UBSan com LeakSanitizer desativado por limitação do
+ambiente. Um teste temporário com cliques e digitação nos widgets reais do ImGui verificou:
+criação, metadados, colunas de condição, herança de tamanho, Core/Alt, alvo oculto após movimentação,
+entrada inválida, salvar/reabrir, trocar/excluir conquistas e as escolhas dos modais. Também
+verificou que uma falha ao salvar não conclui a saída e que Save antes de Open grava o arquivo
+anterior. Esse teste adicional é separado da contagem de testes unitários.
+O teste de interação também passou com ASan/UBSan. Uma mutação retirou temporariamente a
+proteção que impede salvar texto numérico rejeitado: o teste da sessão falhou com três asserções.
+Após restaurar o código, o build e a suíte completa voltaram a passar.
+
+A aplicação real foi executada com core e conteúdo sintéticos, áudio `dummy` e configuração em
+`/tmp`. Capturas da janela em duas larguras foram inspecionadas, inclusive após corrigir os limites
+de altura. Isso não substitui a confirmação manual no uso normal com o jogo.
+
+Roteiro seguro, sem mexer em um set existente:
+
+1. Abra **View → Achievement Editor**, digite `/tmp/cheevo-editor-test-User.txt` e clique em
+   **Open / Create**. Use um arquivo de teste novo.
+2. Clique em **New achievement**, defina título/descrição e escolha 10 pontos. Na condição do
+   Core, use Memory, 8-bit, endereço `000010`, comparação `=`, Value `5` e hits `3`.
+3. Clique em **Add Alt** e **Add condition**; nessa aba, use endereço `000020` e Value `7`.
+   Clique em **Save**, depois **Reload**, e confira se Core e Alt continuam separados.
+4. Crie uma segunda conquista, salve, alterne entre elas e confirme que editar ou excluir uma
+   não altera os campos da outra.
+5. Digite `zz` em um endereço: deve aparecer um erro e Save deve ficar bloqueado. Corrija ou
+   use **Revert invalid inputs**. Enquanto escreve um título com a letra P, o jogo não deve pausar.
+6. Faça uma alteração e tente sair. **Cancel** deve manter o app e a edição abertos. Depois
+   escolha conscientemente Save ou Discard.
+
+Status: implementação testada automaticamente; usuário aprovou o merge após teste manual parcial.
+
+### Para fixar
+
+1. Por que o texto inválido de um campo numérico não pode ser tratado só como o último uint32 válido?
+2. Por que a sessão de edição não muda o arquivo carregado quando o jogo muda?
+3. O que acontece com o operando direito ao entrar e sair temporariamente de AddSource?
+4. Por que uma ação de seleção é executada depois dos campos de texto do frame?
+5. Qual é a diferença entre fechar a janela do editor e descartar suas alterações?
+6. Exercício: crie duas conquistas de teste com título igual, modifique uma e confira a seleção e
+   o arquivo depois de salvar/reabrir. Use somente dados e endereços sintéticos.
+
+
+## 4.4 · Resultado e hits por condição ao vivo
+
+### O que foi feito
+
+O editor ganhou **Start live test**, **Stop live test** e **Rearm test**. A conquista selecionada
+é registrada no mesmo `LogicTester` usado pelo teste de lógica da etapa 3.2, com um ID temporário
+próprio. A avaliação continua acontecendo uma única vez após cada frame emulado. A tabela só lê
+cópias dos resultados: abrir a janela, rolar ou redesenhar não incrementa os hits.
+
+As colunas **Last result** e **Current hits** ficam no início da tabela, fixas durante a rolagem
+horizontal. Mostram comparação verdadeira/falsa, causa de reset e hits próprios da linha,
+com o alvo quando existir. Core e Alts consultam seus grupos correspondentes. O estado geral
+inclui Waiting, Active, Paused, Triggered e Disabled; o último frame avaliado também aparece.
+
+O arquivo aberto não prova que ele pertence ao jogo em execução. Por isso, o início do teste é
+explícito. Trocar o jogo, carregar novamente o arquivo, selecionar/excluir outra conquista ou
+alterar a lógica encerra o teste anterior. Alterar título/descrição/pontos e salvar mantém os
+hits. Fechar só a janela mantém o teste rodando, como acontece com o Achievement Tester.
+
+### Conceitos
+
+- **Comparação não é satisfação da condição:** `is_true` guarda o resultado bruto da comparação.
+  Uma linha pode comparar falso agora e continuar com `3 / 3` hits acumulados. AndNext, OrNext,
+  AddHits e SubHits também influenciam a lógica sem transformar esse bit em uma resposta para
+  toda a cadeia.
+- **Resultados armazenados podem ser anteriores ao frame atual:** PauseIf e ResetIf podem
+  interromper parte da avaliação. Triggered deixa de ser avaliado até rearmar. A UI informa isso
+  e não executa uma segunda avaliação para tentar pintar todas as linhas.
+- **Reset tem um marcador próprio:** o segundo bit de `is_true` identifica o ResetIf responsável.
+  Os hits já podem ter voltado a zero quando lemos esse marcador.
+- **Ordem lógica e armazenamento físico são diferentes:** o rcheevos agrupa condições em memória
+  para executar PauseIf/ResetIf primeiro. O encadeamento `condition->next`, porém, conserva a
+  ordem escrita. A tabela percorre esse encadeamento, sem supor que as condições estejam
+  consecutivas na ordem das linhas.
+- **Identidade não é índice:** excluir a conquista zero pode colocar outra no mesmo índice,
+  até com lógica idêntica. `selection_version()` identifica substituições/reseleções; Save não
+  muda essa identidade. `edit_version()` evita serializar novamente uma lógica sem alterações
+  a cada atualização da interface.
+- **Snapshot não guarda ponteiros do runtime:** save states reconstroem esse runtime. Cada
+  leitura busca a conquista pelo ID novamente e copia os valores para uma estrutura própria.
+  Os hits participam da serialização de progresso já existente; o timestamp do último frame
+  fica desconhecido após restaurar, até haver uma nova avaliação.
+
+### Arquivos para ler
+
+1. `src/devtools/include/cw/devtools/logic_tester.hpp` e `src/devtools/logic_tester.cpp`:
+   snapshots, grupos, hits, bits de resultado e registro do último frame avaliado.
+2. `src/devtools/include/cw/devtools/editor_live_test.hpp` e
+   `src/devtools/editor_live_test.cpp`: registro temporário, vínculo com seleção/jogo,
+   encerramento e rearmamento.
+3. `src/devtools/achievement_editor.cpp`: versões de identidade e edição.
+4. `src/frontend/achievement_editor_window.cpp`: controles e duas colunas ao vivo, sem avaliar
+   memória durante o desenho.
+5. `src/frontend/main.cpp`: sincronização antes de executar frames e depois das ações de menu;
+   reutilização da chamada existente a `LogicTester::do_frame`.
+6. `tests/test_editor_live_test.cpp`: sequências de memória sintética, pausa/reset,
+   persistência de progresso e substituição de conquistas.
+
+### O que aprendemos com a referência
+
+- Em `third_party/rcheevos/src/rcheevos/condset.c`, `rc_parse_condset` distribui condições por
+  categoria, mas liga o campo `next` na ordem em que o texto foi lido. O RAIntegration também
+  percorre essa lista ao associar hits às linhas, em `TriggerViewModel.cpp`.
+- `third_party/rcheevos/include/rc_runtime_types.h` documenta os dois bits de `is_true`.
+  `rc_condset_evaluate_condition_no_add_hits` atribui o resultado antes de aplicar hits e
+  encadeamento. Condições modificadoras como AddSource não têm comparação significativa;
+  sua posição existe no snapshot, mas a UI mostra um traço.
+- `reference/RAIntegration/src/ui/viewmodels/TriggerConditionViewModel.cpp`, em
+  `UpdateRowColor`, distingue comparação verdadeira, alvo de hits e causa de reset.
+  `TriggerViewModel.cpp` também trata linhas puladas por pausa/reset. Usamos os valores
+  armazenados pelo avaliador compilado e deixamos explícito quando podem estar antigos.
+- O Core pode ser nulo quando o texto começa com `S`. O snapshot ainda reserva o grupo zero
+  para ele, para não deslocar os índices das Alts.
+
+### Problemas encontrados
+
+- **Associar linhas pela posição física daria hits à condição errada:** o teste mistura
+  Standard, PauseIf, ResetIf e AddSource antes das Alts e confere a ordem textual.
+- **Recarregar ou excluir podia manter um vínculo aparentemente igual:** comparar só caminho,
+  índice e texto da lógica não detectaria uma nova conquista idêntica no mesmo lugar.
+  A versão da seleção foi acrescentada e esses dois cenários têm testes próprios.
+- **Guardar ponteiros após restaurar progresso seria inseguro:** o teste restaura o runtime,
+  confirma os hits recuperados e continua contando no runtime reconstruído.
+- **Atualizar a UI não pode avançar o avaliador:** leituras repetidas do snapshot e vários
+  frames de desenho do ImGui mantêm a contagem enquanto nenhum frame do jogo é executado.
+- **Serializar em toda atualização seria trabalho desnecessário:** a sincronização usa versões
+  de seleção/edição para conferir a definição apenas quando houver alterações relevantes.
+
+### Verificação e teste manual
+
+A suíte passou com **207 casos e 9.146 asserções**, incluindo 12 casos novos para snapshots e a
+sessão ao vivo. Build e ASan/UBSan passaram; LeakSanitizer ficou desativado pela limitação do
+ambiente. Uma mutação forçou todo resultado bruto para falso: o teste detectou duas asserções
+incorretas. O código original foi restaurado e a suíte completa voltou a passar.
+
+Um teste temporário com os widgets reais do ImGui clicou em Start/Stop/Rearm, verificou True e
+`1 / 3`, restaurou progresso, confirmou `2 / 3` na avaliação seguinte, encerrou o teste ao editar
+a lógica e desenhou a janela em largura reduzida. Também passou com ASan/UBSan. Esse teste é
+adicional à contagem unitária e não substitui a confirmação manual com o jogo.
+
+Quando puder testar, use um arquivo de rascunho separado:
+
+1. Com um jogo carregado, abra **View → Achievement Editor**, crie uma conquista e configure
+   uma condição simples em um endereço conhecido. Use alvo de hits `3`.
+2. Clique em **Start live test**. Confira **Last result**, **Current hits** e **Live state**.
+   Waiting exige que a lógica seja falsa pelo menos uma vez antes de poder disparar.
+3. Pause a emulação com **P**, fora de campos de texto. Os hits devem permanecer parados.
+   Use **N** para avançar um frame: a avaliação deve avançar só esse frame.
+4. Salve um slot com hits parciais, avance e carregue esse mesmo slot. Os hits devem voltar
+   ao valor salvo. Faça isso sem editar a lógica nem reiniciar o teste entre os dois momentos.
+5. Clique em **Rearm test** para limpar o progresso e voltar a Waiting. Altere a lógica:
+   o teste deve parar e só voltar ao clicar em Start novamente.
+6. Selecione outra conquista ou use Reload: resultados antigos não devem continuar vinculados
+   à seleção nova. Confira também uma Alt e uma condição PauseIf/ResetIf em um rascunho.
+
+Status: 4.3 e 4.4 implementadas; usuário aprovou o merge após teste manual parcial.
+
+### Para fixar
+
+1. Por que uma linha pode mostrar False e continuar com `3 / 3` hits?
+2. Qual é a diferença entre o último frame do runtime e o último frame em que uma linha pulada
+   por PauseIf foi efetivamente avaliada?
+3. Por que `condition->next` deve ser usado em vez de avançar um ponteiro no array?
+4. Por que Save pode manter o teste ativo, mas Reload deve encerrá-lo?
+5. Exercício: escreva uma sequência sintética com dois hits, PauseIf e ResetIf; preveja o que
+   cada coluna mostrará antes de executar o teste.

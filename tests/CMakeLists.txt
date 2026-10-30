@@ -4,6 +4,8 @@ add_library(cw_not_a_core MODULE test_core/not_a_core.c)
 target_link_libraries(cw_not_a_core PRIVATE cw_warnings)
 
 add_executable(cw_tests
+    test_achievement_editor.cpp
+    test_editor_live_test.cpp
     test_achievement_logic.cpp
     test_user_file.cpp
     test_user_file_store.cpp
@@ -16,6 +18,7 @@ add_executable(cw_tests
     test_memory.cpp
     test_memory_search.cpp
     test_watch_list.cpp
+    test_code_note_draft.cpp
     test_code_notes.cpp
     test_input_state.cpp
     test_file_checks.cpp

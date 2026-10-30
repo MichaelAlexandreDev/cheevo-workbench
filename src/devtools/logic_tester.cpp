@@ -239,7 +239,10 @@ std::optional<uint32_t> LogicTester::add(std::string title, std::string logic, s
         return std::nullopt;
     }
     ++next_id_;
-    achievements_.push_back({.id = id, .title = std::move(title), .logic = std::move(logic)});
+    achievements_.push_back({.id = id,
+                             .title = std::move(title),
+                             .logic = std::move(logic),
+                             .last_frame = std::nullopt});
     error.clear();
     return id;
 }
@@ -265,8 +268,11 @@ bool LogicTester::rearm(uint32_t id) {
         return false;
     }
     // Activating the same id with the same logic only resets it (rcheevos compares checksums).
-    return rc_runtime_activate_achievement(runtime_.get(), id, found->logic.c_str(), nullptr, 0) ==
-           RC_OK;
+    const bool ok = rc_runtime_activate_achievement(runtime_.get(), id, found->logic.c_str(),
+                                                    nullptr, 0) == RC_OK;
+    if (ok)
+        found->last_frame.reset();
+    return ok;
 }
 
 void LogicTester::reset() {
@@ -276,7 +282,8 @@ void LogicTester::reset() {
     // game does have would never be read again. Rebuilding re-parses every logic string.
     runtime_.reset(new rc_runtime_t);
     rc_runtime_init(runtime_.get());
-    for (const TestedAchievement& a : achievements_) {
+    for (TestedAchievement& a : achievements_) {
+        a.last_frame.reset();
         // The logic parsed when it was added, so it parses again.
         rc_runtime_activate_achievement(runtime_.get(), a.id, a.logic.c_str(), nullptr, 0);
     }
@@ -375,6 +382,8 @@ bool LogicTester::deserialize_progress(std::span<const uint8_t> data, std::strin
         offset += 8 + size;
     }
     runtime_ = std::move(restored);
+    for (auto& achievement : achievements_)
+        achievement.last_frame.reset(); // restored progress has no emulated frame timestamp
     error.clear();
     return true;
 }
@@ -390,6 +399,12 @@ std::vector<LogicEvent> LogicTester::validate_addresses(const MemoryReader& memo
 }
 
 std::vector<LogicEvent> LogicTester::do_frame(const MemoryReader& memory, uint64_t frame) {
+    for (auto& achievement : achievements_) {
+        const auto current = state(achievement.id);
+        if (current != LogicState::Inactive && current != LogicState::Disabled &&
+            current != LogicState::Triggered)
+            achievement.last_frame = frame;
+    }
     return collecting(frame, [&] {
         rc_runtime_do_frame(runtime_.get(), &collect_event, &peek,
                             const_cast<MemoryReader*>(&memory), nullptr);
@@ -428,6 +443,40 @@ std::optional<std::pair<uint32_t, uint32_t>> LogicTester::measured(uint32_t id) 
         return std::nullopt;
     }
     return std::pair<uint32_t, uint32_t>{value, target};
+}
+
+std::optional<AchievementStatus> LogicTester::snapshot(uint32_t id) const {
+    const auto* trigger = rc_runtime_get_achievement(runtime_.get(), id);
+    if (!trigger)
+        return std::nullopt;
+    AchievementStatus result;
+    result.state = state(id);
+    for (const auto& achievement : achievements_)
+        if (achievement.id == id)
+            result.last_frame = achievement.last_frame;
+    const auto append = [&](const rc_condset_t* group) {
+        ConditionGroupStatus output;
+        if (group) {
+            output.paused = group->is_paused != 0;
+            // condset.c links ->next in source order across its reordered backing array.
+            for (auto* condition = group->conditions; condition; condition = condition->next) {
+                const bool modifying = condition->type == RC_CONDITION_ADD_SOURCE ||
+                                       condition->type == RC_CONDITION_SUB_SOURCE ||
+                                       condition->type == RC_CONDITION_ADD_ADDRESS ||
+                                       condition->type == RC_CONDITION_REMEMBER;
+                output.conditions.push_back({.has_comparison = !modifying,
+                                             .is_true = (condition->is_true & 1) != 0,
+                                             .caused_reset = (condition->is_true & 2) != 0,
+                                             .current_hits = condition->current_hits,
+                                             .required_hits = condition->required_hits});
+            }
+        }
+        result.groups.push_back(std::move(output));
+    };
+    append(trigger->requirement);
+    for (auto* group = trigger->alternative; group; group = group->next)
+        append(group);
+    return result;
 }
 
 const char* logic_state_name(LogicState state) {
