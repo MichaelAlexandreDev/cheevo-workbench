@@ -236,6 +236,7 @@ bool CodeNotes::parse_hex_address(std::string_view text, uint32_t& address) {
 
 void CodeNotes::load(std::optional<uint32_t> game_id, const std::filesystem::path& data_dir,
                      const std::filesystem::path& ra_cache_dir) {
+    ++session_version_;
     game_id_ = game_id && *game_id != 0 ? game_id : std::nullopt;
     user_file_.clear();
     user_file_valid_ = true;
