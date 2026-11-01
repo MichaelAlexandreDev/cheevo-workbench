@@ -36,6 +36,33 @@ target_include_directories(libretro_api SYSTEM INTERFACE ${CW_THIRD_PARTY}/libre
 set(RC_DIR ${CW_THIRD_PARTY}/rcheevos)
 file(GLOB RC_RUNTIME_SOURCES CONFIGURE_DEPENDS ${RC_DIR}/src/rcheevos/*.c)
 file(GLOB RC_HASH_SOURCES CONFIGURE_DEPENDS ${RC_DIR}/src/rhash/*.c)
+
+# v12.5.0 promotes bytes to signed int before shifting the high byte of RAP values. Backport
+# unsigned decoding into a generated copy, keeping the pinned submodule untouched. This also
+# handles legitimate sentinel/negative values under UBSan instead of disabling its checks.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${RC_DIR}/src/rcheevos/runtime_progress.c)
+file(READ ${RC_DIR}/src/rcheevos/runtime_progress.c CW_RC_PROGRESS_SOURCE)
+set(CW_RC_SIGNED_READ [=[uint32_t value = progress->buffer[progress->offset + 0] |
+      (progress->buffer[progress->offset + 1] << 8) |
+      (progress->buffer[progress->offset + 2] << 16) |
+      (progress->buffer[progress->offset + 3] << 24);]=])
+set(CW_RC_UNSIGNED_READ [=[uint32_t value = (uint32_t)progress->buffer[progress->offset + 0] |
+      ((uint32_t)progress->buffer[progress->offset + 1] << 8) |
+      ((uint32_t)progress->buffer[progress->offset + 2] << 16) |
+      ((uint32_t)progress->buffer[progress->offset + 3] << 24);]=])
+string(FIND "${CW_RC_PROGRESS_SOURCE}" "${CW_RC_SIGNED_READ}" CW_RC_PROGRESS_READ_OFFSET)
+if(CW_RC_PROGRESS_READ_OFFSET EQUAL -1)
+    message(FATAL_ERROR "Review the rcheevos RAP unsigned-read patch after updating the dependency")
+endif()
+string(REPLACE "${CW_RC_SIGNED_READ}" "${CW_RC_UNSIGNED_READ}"
+    CW_RC_PROGRESS_SOURCE "${CW_RC_PROGRESS_SOURCE}")
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/rcheevos)
+file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/rcheevos/runtime_progress.c
+    CONTENT "${CW_RC_PROGRESS_SOURCE}" @ONLY)
+list(REMOVE_ITEM RC_RUNTIME_SOURCES ${RC_DIR}/src/rcheevos/runtime_progress.c)
+list(APPEND RC_RUNTIME_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/rcheevos/runtime_progress.c)
+
 add_library(rcheevos STATIC
     ${RC_RUNTIME_SOURCES}
     ${RC_HASH_SOURCES}
@@ -45,6 +72,7 @@ add_library(rcheevos STATIC
     ${RC_DIR}/src/rc_version.c)
 # src/ is public too because rc_libretro.h lives there.
 target_include_directories(rcheevos SYSTEM PUBLIC ${RC_DIR}/include ${RC_DIR}/src)
+target_include_directories(rcheevos SYSTEM PRIVATE ${RC_DIR}/src/rcheevos)
 target_link_libraries(rcheevos PUBLIC libretro_api) # rc_libretro.h includes libretro.h
 
 # --- nlohmann/json (header-only): our JSON files (code notes, bookmarks) and RAIntegration's ----

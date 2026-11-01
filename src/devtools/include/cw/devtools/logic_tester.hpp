@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cw/devtools/memory.hpp"
+#include "cw/devtools/user_file.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -14,7 +15,7 @@ struct rc_runtime_t;
 
 namespace cw {
 
-// What happened to an achievement during one emulated frame (rcheevos' RC_RUNTIME_EVENT_*).
+// What happened to an achievement or leaderboard during one emulated frame (RC_RUNTIME_EVENT_*).
 enum class LogicEventKind {
     Activated, // left WAITING/PAUSED/PRIMED: from now on it can trigger
     Paused,    // a PauseIf condition is true
@@ -24,6 +25,11 @@ enum class LogicEventKind {
     Triggered, // the achievement fired
     Disabled,  // it reads an address the memory cannot provide (value = that address)
     Progress,  // its measured value changed
+    LeaderboardStarted,
+    LeaderboardCanceled,
+    LeaderboardUpdated,
+    LeaderboardSubmitted, // offline completion only; no server submission
+    LeaderboardDisabled,
 };
 
 struct LogicEvent {
@@ -63,8 +69,23 @@ struct AchievementStatus {
     std::vector<ConditionGroupStatus> groups;
 };
 
-// Tests achievement logic against live memory with rcheevos' rc_runtime, entirely offline:
-// definitions are typed in (no -User.txt yet, step 4.2), nothing is unlocked or submitted.
+enum class LeaderboardState { Inactive, Waiting, Active, Started, Canceled, Triggered, Disabled };
+struct TestedLeaderboard {
+    uint32_t id = 0;
+    LocalLeaderboard definition;
+    std::string logic;
+    int format = 0;
+    std::optional<uint64_t> last_frame;
+};
+struct LeaderboardStatus {
+    LeaderboardState state = LeaderboardState::Inactive;
+    int32_t value = 0;
+    std::string formatted_value;
+    std::optional<uint64_t> last_frame;
+};
+
+// Tests authored achievements, leaderboards and Rich Presence with rcheevos' rc_runtime,
+// entirely offline. Definitions are registered explicitly; no results are sent to a server.
 //
 // Call do_frame() once per *emulated* frame, after the core ran it — the same rhythm in which
 // RetroAchievements evaluates achievements — so frame advance evaluates exactly one frame.
@@ -82,14 +103,13 @@ class LogicTester {
     // Puts a triggered achievement back to Waiting, hit counts cleared. Refused for a Disabled
     // one: its address is unreadable, and only a memory that has it (after reset()) fixes that.
     bool rearm(uint32_t id);
-    // Every achievement back to Waiting with cleared hit counts and re-enabled, e.g. when a game
-    // is (re)loaded: nothing counted or disabled against the previous memory carries over. Call
-    // validate_addresses() with the new memory afterwards.
+    // Rebuilds all registered definitions with cleared progress and re-enabled memory, e.g.
+    // when a game is (re)loaded. Validate addresses with the new memory afterwards.
     void reset();
 
     static constexpr size_t kMaxProgressSize = 16u * 1024 * 1024;
-    // Native RAP progress, with an optional CWST extension for offline tester terminal states
-    // that rcheevos otherwise omits. Standard RAP readers ignore this extension.
+    // Native RAP progress with optional CWST/CWLB terminal states and CWRC script identity.
+    // Standard RAP readers ignore these extensions.
     bool serialize_progress(std::vector<uint8_t>& out, std::string& error) const;
     // Rebuilds against the current definitions. Malformed data leaves the live runtime intact;
     // unmatched definitions start at Waiting. Revalidate addresses after restoring core memory.
@@ -108,13 +128,34 @@ class LogicTester {
     std::optional<std::pair<uint32_t, uint32_t>> measured(uint32_t id) const;
     std::optional<AchievementStatus> snapshot(uint32_t id) const;
 
+    std::optional<uint32_t> add_leaderboard(const LocalLeaderboard& definition, std::string& error);
+    bool remove_leaderboard(uint32_t id);
+    bool rearm_leaderboard(uint32_t id);
+    const std::vector<TestedLeaderboard>& leaderboards() const { return leaderboards_; }
+    std::optional<LeaderboardStatus> leaderboard_snapshot(uint32_t id) const;
+
+    // Replacing/clearing presence preserves unrelated achievements/leaderboards through RAP.
+    // Rendering reads cached output only: get_richpresence can itself evaluate non-hit displays.
+    bool set_rich_presence(std::string script, std::string& error);
+    const std::string& rich_presence_script() const { return rich_presence_script_; }
+    const std::string& rich_presence_output() const { return rich_presence_output_; }
+    std::optional<uint64_t> rich_presence_frame() const { return rich_presence_frame_; }
+    bool rich_presence_truncated() const { return rich_presence_truncated_; }
+
   private:
+    bool activate_definitions(rc_runtime_t* runtime, std::string& error) const;
     std::unique_ptr<rc_runtime_t, void (*)(rc_runtime_t*)> runtime_;
     std::vector<TestedAchievement> achievements_;
+    std::vector<TestedLeaderboard> leaderboards_;
     uint32_t next_id_ = 1;
+    std::string rich_presence_script_;
+    std::string rich_presence_output_;
+    std::optional<uint64_t> rich_presence_frame_;
+    bool rich_presence_truncated_ = false;
 };
 
 const char* logic_state_name(LogicState state);
 const char* logic_event_name(LogicEventKind kind);
+const char* leaderboard_state_name(LeaderboardState state);
 
 } // namespace cw

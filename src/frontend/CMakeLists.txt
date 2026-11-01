@@ -22,10 +22,13 @@ target_link_libraries(cw_frontend
 # The application: SDL3 window, OpenGL rendering and Dear ImGui UI.
 add_executable(cheevo-workbench
     achievement_editor_window.cpp
+    assisted_search_window.cpp
+    authoring_window.cpp
     game_view.cpp
-    main.cpp)
+    main.cpp
+    ui_fonts.cpp)
 target_link_libraries(cheevo-workbench PRIVATE
-    cw_devtools cw_frontend imgui libretro_api SDL3::SDL3 OpenGL::GL cw_warnings)
+    cw_devtools cw_frontend imgui libretro_api SDL3::SDL3 OpenGL::GL cw_warnings ${CMAKE_DL_LIBS})
 target_compile_definitions(cheevo-workbench PRIVATE CW_VERSION="${PROJECT_VERSION}")
 
 install(TARGETS cheevo-workbench RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

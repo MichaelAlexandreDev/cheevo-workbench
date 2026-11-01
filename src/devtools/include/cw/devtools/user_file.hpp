@@ -95,6 +95,9 @@ inline constexpr size_t kMaxUserFileSize = 16 * 1024 * 1024;
 std::optional<UserFileDocument> parse_user_file(std::string_view text, std::string& error);
 std::optional<std::string> serialize_user_file(const UserFileDocument& document,
                                                std::string& error);
+// Validates the value grammar with complete consumption. Empty local-file drafts are allowed;
+// runtime activation additionally requires a nonempty expression.
+bool validate_leaderboard_value(std::string_view value, std::string& error);
 std::filesystem::path ra_user_file_path(const std::filesystem::path& racache, uint32_t game_id);
 
 } // namespace cw
