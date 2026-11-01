@@ -1,9 +1,9 @@
 #pragma once
 
+#include "cw/devtools/text_file_store.hpp"
 #include "cw/devtools/user_file.hpp"
 
 #include <filesystem>
-#include <optional>
 #include <string>
 
 namespace cw {
@@ -17,13 +17,12 @@ class UserFileStore {
     bool load(const std::filesystem::path& path, std::string& error);
     bool save(const UserFileDocument& document, std::string& error);
     const UserFileDocument& document() const { return document_; }
-    const std::filesystem::path& path() const { return path_; }
+    const std::filesystem::path& path() const { return text_store_.path(); }
     bool writable() const { return writable_; }
 
   private:
-    std::filesystem::path path_;
+    TextFileStore text_store_;
     UserFileDocument document_;
-    std::optional<std::string> loaded_bytes_;
     bool writable_ = false;
 };
 

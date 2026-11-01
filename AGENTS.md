@@ -10,9 +10,12 @@ dev tools (memory search/viewer, achievement editor, code notes, Rich Presence),
 with the official Windows toolkit (RALibretro + RAIntegration). The step-by-step roadmap is
 `docs/roadmap.md` (single source of truth for steps, dependencies and status).
 
-**Status:** 2.1–2.5, 3.1–3.3 and 5.2 done and manually validated; 4.1–4.4 and 5.1 implemented and unit-tested;
+**Status:** 2.1–2.5, 3.1–3.3 and 5.2 done and manually validated;
+4.1–4.4 and 5.1 implemented and unit-tested;
 4.3–4.4 and 5.1 approved for merge after partial manual testing (latest notes layout fix awaits
-manual confirmation); 2.6 on hold (issue #35)
+manual confirmation); 6.1–6.2 implemented and unit-tested, awaiting manual UI validation;
+2.6 implemented after algorithm approval (issue #35), awaiting manual UI validation;
+Japanese UI font fallback implemented (issue #40), with headless glyph tests
 
 **Approach:** written from scratch (not a port of RALibretro/RAIntegration). Shallow clones of
 `RALibretro` (GPL-3.0), `RAIntegration` (MIT) and `rcheevos` (MIT) live in `reference/`

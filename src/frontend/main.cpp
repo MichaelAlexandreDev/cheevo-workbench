@@ -2,11 +2,14 @@
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
 #include "achievement_editor_window.hpp"
+#include "assisted_search_window.hpp"
+#include "authoring_window.hpp"
 #include "cw/devtools/bookmarks.hpp"
 #include "cw/devtools/code_notes.hpp"
 #include "cw/devtools/game_hash.hpp"
 #include "cw/devtools/logic_tester.hpp"
 #include "cw/devtools/memory_search.hpp"
+#include "cw/devtools/rich_presence_editor.hpp"
 #include "cw/devtools/user_file.hpp"
 #include "frame_pacer.hpp"
 #include "game_ids.hpp"
@@ -18,6 +21,7 @@
 #include "save_states.hpp"
 #include "sdl_audio_output.hpp"
 #include "session_state.hpp"
+#include "ui_fonts.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_dialog.h>
@@ -204,6 +208,7 @@ struct UiState {
     std::string status_message;
     bool status_is_error = false;
     uint64_t game_session_generation = 0;
+    uint64_t memory_history_generation = 0; // reset/load breaks passive observation history
     // Identity of the loaded game: its RetroAchievements hash, computed when the game changes,
     // and the game ID the user entered for that hash (no server lookup, AGENTS.md rule 1).
     std::string identified_game_path;
@@ -510,6 +515,7 @@ void handle_state_hotkeys(cw::LibretroCore& core, cw::SaveStates& states, UiStat
             report_message(ui, notice, message, ok);
         } else if (ImGui::Shortcut(key, ImGuiInputFlags_RouteGlobal)) {
             const bool ok = states.load(core, slot, message, &tester);
+            ++ui.memory_history_generation;
             report_message(ui, notice, message, ok);
         }
     }
@@ -930,6 +936,7 @@ void handle_emulation_hotkeys(UiState& ui, Notice& notice, cw::LibretroCore& cor
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_R, ImGuiInputFlags_RouteGlobal)) {
         core.reset();
+        ++ui.memory_history_generation;
         tester.reset();
         record_logic_events(tester.validate_addresses(core.memory(), core.frame_count()), tester,
                             state, notice);
@@ -2516,6 +2523,16 @@ std::string achievement_title(const cw::LogicTester& tester, uint32_t id) {
 void record_logic_events(const std::vector<cw::LogicEvent>& events, const cw::LogicTester& tester,
                          AchievementTesterUi& state, Notice& notice) {
     for (const cw::LogicEvent& event : events) {
+        switch (event.kind) {
+        case cw::LogicEventKind::LeaderboardStarted:
+        case cw::LogicEventKind::LeaderboardCanceled:
+        case cw::LogicEventKind::LeaderboardUpdated:
+        case cw::LogicEventKind::LeaderboardSubmitted:
+        case cw::LogicEventKind::LeaderboardDisabled:
+            continue; // kept in the leaderboard editor's own event log
+        default:
+            break;
+        }
         const std::string title = achievement_title(tester, event.id);
         if (event.kind == cw::LogicEventKind::Triggered) {
             show_notice(notice, "Achievement triggered: " + title, true);
@@ -2717,7 +2734,8 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     MemoryViewerState& memory_viewer, MemorySearchState& memory_search,
                     WatchListUiState& watch_list, CodeNotesUiState& code_notes,
                     AchievementTesterUi& achievement_tester, cw::LogicTester& tester,
-                    bool& achievement_editor_open) {
+                    bool& achievement_editor_open, cw::AuthoringWindow& authoring,
+                    cw::AssistedSearchWindow& assisted_search) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -2766,6 +2784,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         }
         if (ImGui::MenuItem("Reset", "Ctrl+R")) {
             core.reset();
+            ++ui.memory_history_generation;
             tester.reset();
             record_logic_events(tester.validate_addresses(core.memory(), core.frame_count()),
                                 tester, achievement_tester, notice);
@@ -2801,6 +2820,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                 if (ImGui::MenuItem(label.c_str(), shortcut.c_str(), false, exists)) {
                     std::string message;
                     const bool ok = save_states.load(core, slot, message, &tester);
+                    ++ui.memory_history_generation;
                     report_message(ui, notice, message, ok);
                 }
             }
@@ -2811,10 +2831,13 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
     if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Memory Viewer", nullptr, &memory_viewer.open);
         ImGui::MenuItem("Memory Search", nullptr, &memory_search.open);
+        ImGui::MenuItem("Assisted Search", nullptr, &assisted_search.open);
         ImGui::MenuItem("Watch List", nullptr, &watch_list.open);
         ImGui::MenuItem("Code Notes", nullptr, &code_notes.open);
         ImGui::MenuItem("Achievement Tester", nullptr, &achievement_tester.open);
         ImGui::MenuItem("Achievement Editor", nullptr, &achievement_editor_open);
+        ImGui::MenuItem("Rich Presence", nullptr, &authoring.rich_presence_open);
+        ImGui::MenuItem("Leaderboards", nullptr, &authoring.leaderboards_open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
         ImGui::EndMenu();
     }
@@ -3028,6 +3051,9 @@ int main(int argc, char** argv) {
     ImGui::StyleColorsDark();
     ImGui::GetStyle().ScaleAllSizes(scale);
     ImGui::GetStyle().FontScaleDpi = scale;
+    const auto japanese_font = cw::configure_ui_fonts(*io.Fonts);
+    if (!japanese_font.empty())
+        SDL_Log("Japanese UI font: %s", japanese_font.c_str());
 
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -3050,6 +3076,7 @@ int main(int argc, char** argv) {
     UiState ui;
     MemoryViewerState memory_viewer;
     MemorySearchState memory_search;
+    cw::AssistedSearchWindow assisted_search;
     WatchListUiState watch_list_ui;
     CodeNotesUiState code_notes_ui;
     code_notes_ui.ra_cache_dir = load_directory_setting(config, "ra-cache-path.txt");
@@ -3058,6 +3085,7 @@ int main(int argc, char** argv) {
     cw::LogicTester logic_tester;
     AchievementTesterUi achievement_tester_ui;
     cw::AchievementEditorWindow achievement_editor(logic_tester, code_notes);
+    cw::AuthoringWindow authoring(logic_tester);
     ui.system_dir = launch->system_dir.empty() ? load_directory_setting(config, "system-path.txt")
                                                : std::filesystem::absolute(launch->system_dir);
     ui.system_directory_input = ui.system_dir.string();
@@ -3111,6 +3139,8 @@ int main(int argc, char** argv) {
         // cannot erase the runtime progress just restored from a slot.
         achievement_editor.sync_live(ui.game_session_generation, core.is_game_loaded(),
                                      core.memory());
+        authoring.sync_live(ui.game_session_generation, core.is_game_loaded(), core.memory(),
+                            core.frame_count());
         sync_achievement_tester(logic_tester, achievement_tester_ui, ui, core, notice);
         if (watch_session_generation != ui.game_session_generation) {
             bookmarks.clear_highlights();
@@ -3145,6 +3175,9 @@ int main(int argc, char** argv) {
             handle_emulation_hotkeys(ui, notice, core, logic_tester, achievement_tester_ui);
             handle_state_hotkeys(core, save_states, ui, notice, logic_tester);
         }
+        assisted_search.sync(ui.game_session_generation, ui.memory_history_generation,
+                             core.is_game_loaded());
+        assisted_search.handle_hotkey(window_focused && !io.WantTextInput);
 
         const auto now = cw::FramePacer::Clock::now();
         frame_pacer.set_core_fps(core.is_game_loaded() ? core.av_info().timing.fps : 0.0, now);
@@ -3162,10 +3195,12 @@ int main(int argc, char** argv) {
             const bool discard_audio = ui.session.frame_advance_pending();
             for (size_t i = 0; i < frames_due; ++i) {
                 core.run_frame(discard_audio);
+                assisted_search.observe(core.memory());
                 ++frames_run;
                 // Evaluated once per emulated frame, right after it ran, as RetroAchievements does.
-                record_logic_events(logic_tester.do_frame(core.memory(), core.frame_count()),
-                                    logic_tester, achievement_tester_ui, notice);
+                const auto logic_events = logic_tester.do_frame(core.memory(), core.frame_count());
+                record_logic_events(logic_events, logic_tester, achievement_tester_ui, notice);
+                authoring.record_events(logic_events);
                 if (!audio_output.available() &&
                     frame_pacer.mode() == cw::FramePacer::Mode::Audio) {
                     frame_pacer.set_audio_available(false, cw::FramePacer::Clock::now());
@@ -3201,10 +3236,15 @@ int main(int argc, char** argv) {
         }
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
                        memory_viewer, memory_search, watch_list_ui, code_notes_ui,
-                       achievement_tester_ui, logic_tester, achievement_editor.open);
+                       achievement_tester_ui, logic_tester, achievement_editor.open, authoring,
+                       assisted_search);
+        assisted_search.sync(ui.game_session_generation, ui.memory_history_generation,
+                             core.is_game_loaded());
         draw_system_directory(ui, notice, dialogs, window, config, data);
         draw_memory_viewer(core, memory_viewer, bookmarks, code_notes, code_notes_ui);
         draw_memory_search(ui, core, memory_search, memory_viewer, bookmarks, code_notes);
+        if (const auto address = assisted_search.draw(core.memory(), core.is_game_loaded()))
+            jump_to_memory_address(memory_viewer, core.memory(), *address);
         draw_watch_list(bookmarks, watch_list_ui, memory_viewer, core.memory(), core.frame_count(),
                         code_notes, code_notes_ui.ra_cache_dir);
         draw_code_notes_window(code_notes, code_notes_ui, config, memory_viewer, core.memory());
@@ -3223,6 +3263,16 @@ int main(int argc, char** argv) {
                                 core.is_game_loaded()
                                     ? std::filesystem::path(core.game_path()).stem().string()
                                     : std::string{});
+        const auto presence_file =
+            ui.game_id ? (code_notes_ui.ra_cache_dir.empty()
+                              ? (data.empty()
+                                     ? std::filesystem::path{}
+                                     : data / "sets" / (std::to_string(*ui.game_id) + "-Rich.txt"))
+                              : cw::ra_rich_presence_path(code_notes_ui.ra_cache_dir, *ui.game_id))
+                       : std::filesystem::path{};
+        authoring.sync_live(ui.game_session_generation, core.is_game_loaded(), core.memory(),
+                            core.frame_count());
+        authoring.draw(presence_file, editor_file);
         draw_status_window(core, ui, audio_output, queued_audio_seconds, frame_pacer, joypad_state,
                            gamepads);
         draw_game_identity(ui, game_ids, notice);
@@ -3232,7 +3282,11 @@ int main(int argc, char** argv) {
 
         if (achievement_editor.take_quit_request())
             ui.quit = true;
+        if (authoring.take_quit_request())
+            ui.quit = true;
         if (ui.quit && !achievement_editor.allow_quit())
+            ui.quit = false;
+        if (ui.quit && !authoring.allow_quit())
             ui.quit = false;
         // Save active bookmark edits before leaving the main loop.
         if (ui.quit && !flush_pending_bookmark_descriptions(bookmarks, watch_list_ui)) {

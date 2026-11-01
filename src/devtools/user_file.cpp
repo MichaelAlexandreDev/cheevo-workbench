@@ -535,6 +535,10 @@ struct UserFileFormat {
 std::optional<UserFileDocument> parse_user_file(std::string_view text, std::string& error) {
     return UserFileFormat::parse(text, error);
 }
+bool validate_leaderboard_value(std::string_view value, std::string& error) {
+    error.clear();
+    return validate_value(value, error);
+}
 std::optional<std::string> serialize_user_file(const UserFileDocument& document,
                                                std::string& error) {
     return UserFileFormat::serialize(document, error);

@@ -32,7 +32,7 @@ Status legend: ✅ done · 🟡 in progress · ⏳ planned · ⏸ on hold · �
 | 2.3 | Memory search: snapshot and compare to previous / first / typed value (=, ≠, <, >, ≤, ≥), sizes as in 2.2 including independent bit-position candidates, optional alignment, All / per-region ranges, bounded undo, filtered result list → open in viewer. Unit-tested on synthetic buffers | 2.1, 2.2 | ✅ |
 | 2.4 | Watch list: addresses to follow live while playing | 2.2 | ✅ |
 | 2.5 | Code notes, own storage: the user's notes in our own file (`$XDG_DATA_HOME/cheevo-workbench/notes/<GameID>.json`, documented format), shown in viewer, search results and watch list. Server notes are shown **read-only** from RAIntegration's cache `RACache/Data/<GameID>-Notes.json` (configurable RACache path). A "to publish" list shows notes that are new/changed versus the cache, to copy into RAIntegration | 2.2, 2.3, 2.4, 3.1 | ✅ |
-| 2.6 | **Assisted search** (issue #35): find candidate addresses automatically while the user plays (passive per-frame statistics, classification into flags / area values / counters, a "mark this moment" hotkey). **On hold: the algorithm is to be discussed with the user before any implementation.** | 2.2, 2.3 | ⏸ |
+| 2.6 | **Assisted search** (issue #35): opt-in 8-bit per-frame statistics, ranked flag / area / counter candidates, labeled moment intersections and same-place filtering; Ctrl+M marks an event. The user approved this algorithm on 2026-11-01. | 2.2, 2.3 | 🟡 — implemented; awaiting manual UI validation |
 
 **Unlocks for the set:** memory research (current area, event flags, items…) can begin, with
 notes kept inside the tool from day one.
@@ -86,8 +86,8 @@ RAIntegration for upload.
 
 | Step | Scope | Depends on | Status |
 |---|---|---|---|
-| 6.1 | Rich Presence editor + live preview, `RACache/Data/<GameID>-Rich.txt` | 3.2 | ⏳ |
-| 6.2 | Leaderboards (start/cancel/submit/value) with live testing, stored in `-User.txt` | 4.2, 3.2 | ⏳ |
+| 6.1 | Rich Presence editor + live preview, `RACache/Data/<GameID>-Rich.txt` | 3.2 | 🟡 — implemented; awaiting manual UI validation |
+| 6.2 | Leaderboards (start/cancel/submit/value) with live testing, stored in `-User.txt` | 4.2, 3.2 | 🟡 — implemented; awaiting manual UI validation |
 
 ## Milestone 7 — Server integration 🔒
 
@@ -96,6 +96,10 @@ open the official RAIntegration (Wine) → it reads the same files → upload fr
 split into 7a (read-only: login, hash → game ID, fetch assets/notes) and 7b (writes).
 
 ## Later / optional
+
+- Japanese UI text (issue #40): implemented with an optional installed Japanese font merged into
+  ImGui's default font; headless tests cover Japanese glyph rasterization and the default fallback.
+  No font is bundled. Visual confirmation in the running application remains pending.
 
 - Hardware-rendered cores (`SET_HW_RENDER`, OpenGL) — not needed for Beetle PSX's software build.
 - CHD content for hashing (needs `libchdr`; rcheevos v12.5.0 has no CHD reader).

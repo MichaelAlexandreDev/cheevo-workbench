@@ -4,6 +4,7 @@
 add_library(cw_devtools STATIC
     achievement_editor.cpp
     achievement_logic.cpp
+    assisted_search.cpp
     bookmarks.cpp
     code_note_draft.cpp
     code_notes.cpp
@@ -11,8 +12,11 @@ add_library(cw_devtools STATIC
     file_checks.cpp
     game_hash.cpp
     logic_tester.cpp
+    leaderboard_editor.cpp
     memory.cpp
     memory_search.cpp
+    rich_presence_editor.cpp
+    text_file_store.cpp
     user_file.cpp
     user_file_store.cpp
     watch_list.cpp)

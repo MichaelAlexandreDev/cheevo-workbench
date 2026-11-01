@@ -10,6 +10,50 @@ watch list, code notes). É aqui que o trabalho no set começa.
 | 2.3 | Busca de memória | ✅ |
 | 2.4 | Watch list | ✅ |
 | 2.5 | Code notes | ✅ |
+| 2.6 | Busca assistida offline | 🟡 Implementada; aguarda teste manual |
+
+## Resumo da etapa
+
+### O que a etapa entregou
+
+O viewer inspeciona e altera memória, a busca manual compara snapshots, a watch list acompanha
+endereços e as notas registram descobertas. A busca assistida observa mudanças e sugere candidatos
+a flags, áreas e contadores; a interpretação continua sendo trabalho de quem pesquisa o jogo.
+
+### Mapa do código
+
+`LibretroCore → LibretroMemory → MemoryReader → viewer / MemorySearch / AssistedSearch / Bookmarks`.
+`CodeNotes` associa anotações aos endereços exibidos. A lógica das ferramentas fica em `cw_devtools`;
+as janelas apenas apresentam resultados e recebem comandos.
+
+### O caminho de um frame
+
+1. O core atualiza a memória.
+2. A busca assistida, quando iniciada pelo usuário, observa exatamente uma vez.
+3. A watch list lê seus endereços e atualiza os valores e destaques.
+4. A interface desenha os resultados; redesenhar não cria observações.
+5. Reset, carregamento de estado ou troca do jogo invalidam a observação assistida anterior.
+
+### Os conceitos mais importantes
+
+Endereços RA e regiões parcialmente legíveis (2.1); tamanho e ordem dos bytes (2.2);
+comparações entre snapshots (2.3); estado vivo versus persistência (2.4); notas próprias versus
+cache do servidor (2.5); heurísticas e interseção de candidatos (2.6).
+
+### Lições das revisões
+
+Uma região pode estar parcialmente disponível: o leitor, e não apenas o tamanho, decide o que
+existe. Histórico de outro jogo ou anterior a um save state produz sugestões enganosas. Filtrar
+uma categoria depois de limitar a lista pode esconder candidatos válidos. Verificar blocos de
+bytes antes de tocar nas estatísticas reduz o custo de observar memória pouco alterada.
+
+### Prova da etapa
+
+1. Por que um endereço da CPU pode diferir do endereço mostrado pelo RA?
+2. Quando usar uma comparação manual em vez da classificação assistida?
+3. O que torna uma marca repetida mais útil que uma marca isolada?
+4. Por que nenhum candidato a flag deve virar conquista sem confirmação no jogo?
+5. Por que restaurar um save state reinicia a coleta assistida?
 
 ---
 
@@ -531,3 +575,107 @@ servidor. Copiar uma nota é uma ação local de clipboard para colagem no RAInt
 5. Como confirmar que a janela Code Notes selecionou o arquivo correspondente ao jogo atual?
 6. Configure uma pasta `RACache` e abra o `.cue` usado em 1.2. No viewer, adicione uma nota em um
    endereço, salve, troque de jogo e volte. O que muda ao selecionar outro game ID?
+
+
+## 2.6 · Busca assistida offline
+
+### O que foi feito
+
+O algoritmo foi aprovado em 01/11/2026. Em **View → Assisted Search**, Start observation começa
+uma coleta de valores de 8 bits. A janela classifica candidatos como Flag, Area / mode ou Counter.
+Clicar no endereço abre o Memory Viewer; passar o mouse sobre o valor mostra os primeiros valores
+vistos e o frame da última alteração. Score é uma prioridade heurística, não uma probabilidade.
+
+**Ctrl+M** ou Mark moment registra um acontecimento com rótulo. Repetir o mesmo rótulo cruza os
+candidatos; Same place again exige o valor da primeira marca. A marca termina após três frames
+observados e exige estabilidade antes e depois da mudança. O atalho não funciona durante digitação
+nem quando a janela do aplicativo perde foco. Stop cancela a marca pendente e conserva resultados
+já concluídos. Reiniciar cria um histórico novo. Fechar a janela não interrompe a coleta.
+
+### Conceitos
+
+- **Estatísticas por endereço:** valor atual, contagem de mudanças, passos +1/-1, bits alterados,
+  até quatro valores distintos e momento da última mudança. Não guardamos todos os frames.
+- **Custo dos bytes estáveis:** leituras em blocos de 4 KiB usam um buffer temporário; comparações
+  de blocos de 256 bytes pulam estatísticas quando nada mudou. Há uma imagem corrente persistente.
+- **Classificação aproximada:** um único bit alterado sugere flag; passos predominantemente +1
+  ou -1 sugerem contador; poucos valores distintos sugerem área/modo. Constantes e valores muito
+  agitados ficam fora do ranking passivo. Marcas permitem recuperar um candidato específico.
+- **Interseção:** cada nova ocorrência do mesmo rótulo conserva apenas endereços presentes nas
+  ocorrências anteriores. Uma marca equivocada pode eliminar o endereço certo; reinicie nesse caso.
+- **Limites explícitos:** até 4 MiB de espaço de endereços, 4.096 trechos legíveis, oito rótulos e
+  200 resultados visíveis. Contagens saturadas deixam de participar do ranking passivo. A memória
+  usada depende dos endereços e rótulos, não da duração da sessão.
+- **Sessão:** pausa da emulação não avança estatísticas. Frame advance avança uma observação.
+  Reset, tentativa de carregar estado, troca de jogo ou mudança do mapa descartam o histórico.
+  Uma perda de leitura de um trecho conhecido também invalida a sessão.
+
+### Arquivos para ler
+
+1. `src/devtools/include/cw/devtools/assisted_search.hpp`: API e limites.
+2. `src/devtools/assisted_search.cpp`: leitura, classificação e interseção das marcas.
+3. `tests/test_assisted_search.cpp`: flags, áreas e contadores plantados entre ruído sintético.
+4. `src/frontend/assisted_search_window.cpp`: controles, marcações e cache do ranking.
+5. `src/frontend/main.cpp`: observação após cada frame e invalidação em descontinuidades.
+6. `tests/benchmark_assisted_search.cpp`: medição reproduzível com 2 MiB sintéticos.
+
+### O que aprendemos com a referência
+
+A busca assistida é uma função própria, sem equivalente copiado do RAIntegration. Reutiliza a
+interface de endereços RA já verificada na etapa 2.1. Não modifica memória, não interpreta arquivos
+RA e não envia dados ao servidor.
+
+### Problemas encontrados
+
+A revisão detectou filtro de categoria aplicado depois do limite da lista: muitas flags podiam
+ocultar todos os contadores. Agora a categoria é filtrada antes do top 200. Contadores saturados
+podiam fazer ruído parecer estável em sessões longas. Leituras curtas podiam criar milhões de
+regiões; a descoberta agora combina trechos contíguos e limita a fragmentação. Parar durante uma
+marca pendente agora cancela somente essa marca.
+
+O primeiro benchmark visitava todas as estatísticas e ultrapassava a meta aproximada de 1 ms.
+Comparar blocos primeiro melhorou o cenário esparso; memória inteira mudando continua mais cara.
+As medições finais e limitações estão em `docs/planning/implementation-review-2026-11-01.md`.
+
+### Para fixar
+
+1. Por que uma flag que muda duas vezes não prova o significado do evento?
+2. Como três marcas podem eliminar candidatos diferentes em cada ocorrência?
+3. Por que filtrar categoria depois do top 200 é incorreto?
+4. Qual é a diferença entre uma imagem corrente e guardar um snapshot de cada frame?
+5. Por que o benchmark precisa incluir alterações densas e não apenas memória quase estável?
+
+## Issue #40 · Texto japonês na interface
+
+### O que foi feito
+
+O ImGui conserva sua fonte padrão e acrescenta glifos de uma fonte japonesa instalada. Fontconfig
+é consultado quando disponível; caminhos comuns de fontes são uma alternativa. Nenhuma fonte é
+incluída no projeto. Sem fonte compatível, a interface continua com a fonte padrão.
+
+### Conceitos
+
+UTF-8 descreve os caracteres, mas uma fonte precisa conter seus desenhos. O ImGui vendorizado
+carrega glifos conforme necessário, por isso não é preciso rasterizar todos os ideogramas ao abrir
+a janela. A fonte adicional é mesclada e não substitui o texto latino.
+
+### Arquivos para ler
+
+`src/frontend/ui_fonts.cpp`, `tests/test_ui_fonts.cpp` e a inicialização de ImGui em `main.cpp`.
+
+### O que aprendemos com a referência
+
+O backend OpenGL do ImGui vendorizado suporta texturas dinâmicas. `AddFontFromMemoryTTF` assume a
+propriedade do buffer e o libera inclusive quando falha; o chamador não pode liberá-lo novamente.
+Fontconfig pode sugerir fontes bitmap, então filtramos os formatos aceitos pelo rasterizador.
+
+### Problemas encontrados
+
+A revisão corrigiu uma liberação dupla no caminho de falha ao adicionar fonte. Testes headless
+confirmam texto latino na fonte original e glifos de hiragana, katakana e kanji na fonte adicional
+quando existe uma fonte compatível. O teste também cobre ausência da fonte adicional.
+
+### Para fixar
+
+1. Por que salvar texto em UTF-8 não basta para exibir japonês?
+2. Quem passa a ser dono dos bytes da fonte após entregá-los ao ImGui?
