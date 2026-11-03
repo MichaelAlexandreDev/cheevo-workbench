@@ -96,9 +96,16 @@ void draw_memory_value_editor(LibretroCore& core, MemoryViewerState& viewer, Boo
                              "Address added to Watch List.", bookmarks.game_id().has_value());
     }
     ImGui::Separator();
-    ImGui::PushTextWrapPos(0.0f);
-    draw_memory_values(memory, viewer.selected_address);
-    ImGui::PopTextWrapPos();
+    // This list scrolls by itself and takes a share of the panel, so the controls below it stay in
+    // view without scrolling the panel.
+    const float list_height = std::max(ImGui::GetTextLineHeightWithSpacing() * 3.0f,
+                                       ImGui::GetContentRegionAvail().y * 0.2f);
+    if (ImGui::BeginChild("Interpretations", ImVec2(0.0f, list_height))) {
+        ImGui::PushTextWrapPos(0.0f);
+        draw_memory_values(memory, viewer.selected_address);
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::EndChild();
     ImGui::Separator();
 
     ImGui::TextWrapped("Edit value (hex)");
@@ -250,7 +257,13 @@ void draw_memory_code_note_editor(MemoryViewerState& viewer, CodeNotesUiState& s
         ImGui::TextWrapped("%s", notes.user_error().c_str());
     }
     ImGui::Text("Address 0x%06X", address);
-    input_text_multiline_string("My note", state.note_editor, ImVec2(-FLT_MIN, ui_px(100.0f)));
+    // The label goes above the box because beside it, it would sit past the panel's edge. The box
+    // takes the room left by what is drawn below it, measured on the previous frame.
+    ImGui::TextUnformatted("My note");
+    const float note_height = std::max(ImGui::GetTextLineHeightWithSpacing() * 3.0f,
+                                       ImGui::GetContentRegionAvail().y - state.below_note_height);
+    input_text_multiline_string("##my_note", state.note_editor, ImVec2(-FLT_MIN, note_height));
+    const float below_note_start = ImGui::GetCursorPosY();
     if (ImGui::Button("Save note")) {
         std::string error;
         if (notes.set_note(address, state.note_editor, error)) {
@@ -291,6 +304,7 @@ void draw_memory_code_note_editor(MemoryViewerState& viewer, CodeNotesUiState& s
                                                            : ImVec4(0.55f, 0.9f, 0.6f, 1.0f);
         ImGui::TextColored(color, "%s", state.editor_message.c_str());
     }
+    state.below_note_height = ImGui::GetCursorPosY() - below_note_start;
 }
 
 } // namespace

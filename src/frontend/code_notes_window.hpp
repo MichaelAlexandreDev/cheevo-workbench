@@ -27,6 +27,7 @@ struct CodeNotesUiState {
     std::optional<uint32_t> loaded_game_id;
     std::filesystem::path loaded_data_dir;
     std::filesystem::path loaded_ra_cache_dir;
+    float below_note_height = 0.0f; // what the Memory Viewer draws below its note box
 };
 
 void draw_code_notes_window(CodeNotes& notes, CodeNotesUiState& state,

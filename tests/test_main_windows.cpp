@@ -244,8 +244,7 @@ TEST_CASE("Windows keep their controls") {
 
     app.click("Memory Viewer", "Go");
     CHECK(app.controls("Memory Viewer") == Labels{"Memory Viewer", "Address (hex)", "Go", "Watch",
-                                                  "Write value", "My note", "Save note",
-                                                  "Delete note"});
+                                                  "Write value", "Save note", "Delete note"});
 }
 
 TEST_CASE("The main menu lists and toggles the tool windows") {
@@ -305,6 +304,71 @@ TEST_CASE("Memory Viewer keeps the address controls inside the window at any wid
             REQUIRE(item != nullptr);
             CHECK(item->rect.Max.x <= window->Pos.x + window->Size.x);
         }
+    }
+}
+
+TEST_CASE("Memory Viewer keeps the code note in view without scrolling the panel") {
+    WindowsHarness app;
+    set_text(app.memory_viewer.address_input, "000010");
+    app.click("Memory Viewer", "Go");
+
+    // The same window and font as a real report: a large font in a window of ordinary height.
+    cw::UiSettings settings = app.appearance->settings();
+    settings.font_size = 19;
+    app.appearance->change(settings);
+    app.appearance->begin_frame();
+    ImGui::SetWindowSize("Memory Viewer", ImVec2(835.0f, 768.0f));
+    app.frame();
+    app.frame();
+    app.frame();
+
+    const ImGuiWindow* window = ImGui::FindWindowByName("Memory Viewer");
+    REQUIRE(window != nullptr);
+    for (const char* label : {"Watch", "Write value", "Save note", "Delete note"}) {
+        CAPTURE(label);
+        const RecordedItem* item = app.find("Memory Viewer", label);
+        REQUIRE(item != nullptr);
+        CHECK(item->rect.Max.y <= window->Pos.y + window->Size.y);
+    }
+}
+
+TEST_CASE("Memory Viewer's value panel fits without scrollbars") {
+    WindowsHarness app;
+    set_text(app.memory_viewer.address_input, "000010");
+    app.click("Memory Viewer", "Go");
+
+    // The first size and font are the ones from a real report.
+    struct Case {
+        int font_size;
+        float width;
+        float height;
+    };
+    for (const Case& test : {Case{19, 776.0f, 768.0f}, Case{19, 1200.0f, 880.0f},
+                             Case{13, 1050.0f, 650.0f}, Case{13, 800.0f, 500.0f}}) {
+        CAPTURE(test.font_size);
+        CAPTURE(test.width);
+        CAPTURE(test.height);
+        cw::UiSettings settings = app.appearance->settings();
+        settings.font_size = test.font_size;
+        app.appearance->change(settings);
+        app.appearance->begin_frame();
+        ImGui::SetWindowSize("Memory Viewer", ImVec2(test.width, test.height));
+        app.frame();
+        app.frame();
+        app.frame();
+
+        // Only the panel itself: the list inside it has a longer name and may scroll.
+        const ImGuiWindow* panel = nullptr;
+        for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows) {
+            const std::string_view name(window->Name);
+            if (name.starts_with("Memory Viewer/SelectedValue") &&
+                name.find('/', std::string_view("Memory Viewer/").size()) == name.npos)
+                panel = window;
+        }
+        REQUIRE(panel != nullptr);
+        CHECK(panel->ScrollMax.x == 0.0f);
+        CHECK(panel->ScrollMax.y == 0.0f);
+        CHECK_FALSE(panel->ScrollbarY);
     }
 }
 
