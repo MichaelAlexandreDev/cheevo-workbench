@@ -131,7 +131,8 @@ struct WindowsHarness {
                        tester_ui, logic_tester, achievement_editor_open, authoring, assisted_search,
                        *appearance);
         draw_memory_viewer(core, memory_viewer, bookmarks, code_notes, code_notes_ui);
-        draw_memory_search(ui, core, memory_search, memory_viewer, bookmarks, code_notes);
+        draw_memory_search(ui.game_session_generation, core, memory_search, memory_viewer,
+                           bookmarks, code_notes);
         draw_watch_list(bookmarks, watch_list, memory_viewer, core.memory(), core.frame_count(),
                         code_notes, code_notes_ui.ra_cache_dir);
         draw_code_notes_window(code_notes, code_notes_ui, dir.path(), memory_viewer, core.memory());

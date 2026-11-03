@@ -77,6 +77,7 @@ add_executable(cw_window_tests
     ../src/frontend/assisted_search_window.cpp
     ../src/frontend/authoring_window.cpp
     ../src/frontend/game_view.cpp
+    ../src/frontend/memory_search_window.cpp
     ../src/frontend/memory_viewer_window.cpp
     ../src/frontend/ui_appearance.cpp
     ../src/frontend/ui_fonts.cpp

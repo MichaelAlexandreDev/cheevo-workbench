@@ -26,6 +26,7 @@ add_executable(cheevo-workbench
     authoring_window.cpp
     game_view.cpp
     main.cpp
+    memory_search_window.cpp
     memory_viewer_window.cpp
     ui_appearance.cpp
     ui_fonts.cpp
