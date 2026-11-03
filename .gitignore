@@ -47,6 +47,8 @@ reference/
 
 # Local game files and BIOS (kept outside version control)
 .utils/
+# Generated working files (achievement art, previews, archives)
+output/
 # gitignore patterns are case-sensitive: cover upper-case dumps too (e.g. SCPH1001.BIN)
 *.BIN
 *.CUE

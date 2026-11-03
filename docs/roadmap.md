@@ -75,6 +75,14 @@ notes kept inside the tool from day one.
 **Unlocks for the set:** the whole set can be developed on Linux; the file opens in the official
 RAIntegration for upload.
 
+> **End-to-end check (2026-11-03, RALibretro 1.8.4 + RAIntegration 1.4.2 under Wine, game 18238):**
+> achievements written by this tool (sizes 8/16/32-bit, hit target, Alt groups) loaded in
+> RAIntegration with matching data, and it evaluated and triggered one locally. RAIntegration saved
+> a title edit; this tool then opened that file and showed the edit, and its parser and writer
+> reproduced the file byte for byte. RAIntegration assigns local IDs to our `0` IDs and rewrites
+> the version and title lines and the line endings. Not yet covered: leaderboards, Rich Presence,
+> code notes and bookmarks.
+
 ## Milestone 5 — Notes in the editor + bookmarks
 
 | Step | Scope | Depends on | Status |

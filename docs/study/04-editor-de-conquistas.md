@@ -633,3 +633,38 @@ Status: 4.3 e 4.4 implementadas; usuário aprovou o merge após teste manual par
 4. Por que Save pode manter o teste ativo, mas Reload deve encerrá-lo?
 5. Exercício: escreva uma sequência sintética com dois hits, PauseIf e ResetIf; preveja o que
    cada coluna mostrará antes de executar o teste.
+
+## Teste com o RAIntegration oficial
+
+### O que foi feito
+
+Em 2026-11-03, testamos os arquivos da ferramenta no RALibretro 1.8.4 com o RAIntegration 1.4.2,
+pelo Wine, no jogo 18238 e sem nenhum upload. Três conquistas criadas aqui abriram lá com os dados
+corretos. Depois, o RAIntegration salvou uma edição de título, e a ferramenta abriu esse arquivo e
+mostrou o título novo.
+
+### Conceitos
+
+- **Compatibilidade de verdade:** teste unitário confirma o formato que esperamos, mas só o programa
+  oficial confirma que ele aceita o arquivo.
+- **Estado Waiting:** uma conquista só pode disparar depois de ter sido falsa pelo menos uma vez.
+- **Primeira linha do `-User.txt`:** identifica o programa que gravou o arquivo. O RAIntegration
+  lê essa linha e não usa o valor.
+
+### Problemas encontrados
+
+- **Só o Teste B disparou:** a previsão do teste estava errada, não o programa. `0xH000100>=0` é
+  sempre verdadeira, então os testes A e C ficaram em Waiting. O Teste B começou falso porque
+  precisava de 600 hits.
+- **Teste C com `=`:** a comparação ficou no valor padrão ao preencher a tabela. Depois de corrigir,
+  o arquivo saiu certo, sem bug na ferramenta.
+- **IDs:** a ferramenta grava `0`, e o RAIntegration troca por IDs locais como `111000001`.
+- **Regravação:** o RAIntegration muda a versão, o título do jogo e as quebras de linha para CRLF.
+  A lógica não muda, e a ferramenta preserva esse arquivo byte a byte.
+
+### Para fixar
+
+1. Por que `0xH000100>=0` nunca dispara, mesmo sendo sempre verdadeira?
+2. Por que a mesma condição com 600 hits dispara?
+3. Por que os testes unitários não bastavam para este teste?
+4. Exercício: escreva uma condição que comece falsa e fique verdadeira ao longo do jogo.
