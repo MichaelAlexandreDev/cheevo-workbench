@@ -1,5 +1,7 @@
 #include "ui_widgets.hpp"
 
+#include <SDL3/SDL.h>
+
 #include <algorithm>
 #include <charconv>
 #include <fstream>
@@ -127,6 +129,16 @@ bool save_directory_setting(const std::filesystem::path& config_dir, const char*
     saved_path = path;
     error.clear();
     return true;
+}
+
+void show_notice(Notice& notice, const std::string& text, bool ok) {
+    notice.text = text;
+    notice.until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    if (ok) {
+        SDL_Log("%s", text.c_str());
+    } else {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", text.c_str());
+    }
 }
 
 } // namespace cw

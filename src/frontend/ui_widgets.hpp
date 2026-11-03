@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -14,6 +15,12 @@
 
 // Small widgets and helpers shared by the tool windows.
 namespace cw {
+
+// Short message drawn over the game for a moment (e.g. "Saved slot 1"); also logged.
+struct Notice {
+    std::string text;
+    std::chrono::steady_clock::time_point until{};
+};
 
 constexpr std::array<std::pair<MemoryValueSize, const char*>, 14> kMemoryValueSizes = {{
     {MemoryValueSize::Bit0, "Bit 0"},
@@ -36,6 +43,8 @@ constexpr bool has_byte_order(MemoryValueSize size) {
     return size == MemoryValueSize::SixteenBit || size == MemoryValueSize::TwentyFourBit ||
            size == MemoryValueSize::ThirtyTwoBit;
 }
+
+void show_notice(Notice& notice, const std::string& text, bool ok);
 
 const char* memory_value_size_label(MemoryValueSize size);
 bool parse_hex_value(std::string_view text, uint32_t& value);
