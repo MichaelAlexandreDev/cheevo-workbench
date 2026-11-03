@@ -288,6 +288,25 @@ TEST_CASE("Memory Viewer jumps to an address and rejects invalid ones") {
     CHECK(app.memory_viewer.message == "Enter a valid hexadecimal address.");
 }
 
+TEST_CASE("Memory Viewer keeps the address controls inside the window at any width") {
+    WindowsHarness app;
+    ImGuiWindow* window = ImGui::FindWindowByName("Memory Viewer");
+    REQUIRE(window != nullptr);
+    app.click("Memory Viewer", "Go");
+    for (const float width : {1200.0f, 800.0f, 600.0f, 400.0f, 300.0f}) {
+        CAPTURE(width);
+        ImGui::SetWindowSize("Memory Viewer", ImVec2(width, 880.0f));
+        app.frame();
+        app.frame();
+        for (const char* label : {"Address (hex)", "Go"}) {
+            CAPTURE(label);
+            const RecordedItem* item = app.find("Memory Viewer", label);
+            REQUIRE(item != nullptr);
+            CHECK(item->rect.Max.x <= window->Pos.x + window->Size.x);
+        }
+    }
+}
+
 TEST_CASE("Memory Viewer writes values and adds the selection to the Watch List") {
     WindowsHarness app;
     set_text(app.memory_viewer.address_input, "000010");

@@ -356,6 +356,7 @@ void draw_memory_viewer(LibretroCore& core, MemoryViewerState& viewer, Bookmarks
     };
 
     const std::string selected_label = region_label(static_cast<size_t>(viewer.selected_region));
+    ImGui::SetNextItemWidth(ui_px(260.0f));
     if (ImGui::BeginCombo("Region", selected_label.c_str())) {
         for (size_t i = 0; i < regions.size(); ++i) {
             const std::string label = region_label(i);
@@ -376,12 +377,12 @@ void draw_memory_viewer(LibretroCore& core, MemoryViewerState& viewer, Bookmarks
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
+    same_line_if_fits(labeled_item_width(ui_px(150.0f), "Address (hex)"));
     ImGui::SetNextItemWidth(ui_px(150.0f));
     const bool go_submitted = ImGui::InputText(
         "Address (hex)", viewer.address_input, sizeof(viewer.address_input),
         ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::SameLine();
+    same_line_if_fits(ImGui::CalcTextSize("Go").x + ImGui::GetStyle().FramePadding.x * 2.0f);
     if (ImGui::Button("Go") || go_submitted) {
         uint32_t address = 0;
         if (!parse_hex_value(viewer.address_input, address)) {
