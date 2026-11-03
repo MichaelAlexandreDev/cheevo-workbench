@@ -127,7 +127,11 @@ void draw_achievement_tester(LogicTester& tester, AchievementTesterUi& state,
         ImGui::TableSetupColumn("State");
         ImGui::TableSetupColumn("Measured");
         ImGui::TableSetupColumn("Logic");
-        ImGui::TableSetupColumn("");
+        // Fixed to fit its buttons, because this table does not scroll sideways.
+        const ImGuiStyle& style = ImGui::GetStyle();
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("Re-arm").x + ImGui::CalcTextSize("Remove").x +
+                                    style.FramePadding.x * 2.0f + style.ItemSpacing.x);
         ImGui::TableHeadersRow();
         for (const TestedAchievement& a : tester.achievements()) {
             ImGui::PushID(static_cast<int>(a.id));

@@ -601,3 +601,32 @@ TEST_CASE("Achievement Editor freezes the live columns only during a test that l
     CHECK(frozen_columns(600.0f) == 2);
     CHECK(frozen_columns(450.0f) == 0); // they would leave too little room for the other columns
 }
+
+TEST_CASE("Achievement Tester keeps its row buttons inside the window with a large font") {
+    WindowsHarness app;
+    app.tester_ui.title = "Good";
+    app.tester_ui.logic = "0xH000010=1";
+    app.click("Achievement Tester", "Add");
+
+    cw::UiSettings settings = app.appearance->settings();
+    settings.font_size = 19;
+    app.appearance->change(settings);
+    app.appearance->begin_frame();
+    const ImGuiWindow* window = ImGui::FindWindowByName("Achievement Tester");
+    REQUIRE(window != nullptr);
+    for (const float width : {1200.0f, 900.0f, 600.0f, 400.0f}) {
+        CAPTURE(width);
+        ImGui::SetWindowSize("Achievement Tester", ImVec2(width, 880.0f));
+        app.frame();
+        app.frame();
+        for (const char* label : {"Re-arm", "Remove"}) {
+            CAPTURE(label);
+            const RecordedItem* item = app.find("Achievement Tester", label);
+            REQUIRE(item != nullptr);
+            CHECK(item->rect.Max.x <= window->Pos.x + window->Size.x);
+        }
+    }
+
+    app.click("Achievement Tester", "Remove");
+    CHECK_FALSE(app.has("Achievement Tester", "Remove"));
+}
