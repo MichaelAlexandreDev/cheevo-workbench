@@ -78,6 +78,7 @@ add_executable(cw_window_tests
     ../src/frontend/authoring_window.cpp
     ../src/frontend/code_notes_window.cpp
     ../src/frontend/game_view.cpp
+    ../src/frontend/main_menu.cpp
     ../src/frontend/status_window.cpp
     ../src/frontend/content_dialogs.cpp
     ../src/frontend/gamepad_input.cpp
