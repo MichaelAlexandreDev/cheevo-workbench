@@ -13,6 +13,16 @@
 #include "../src/frontend/main.cpp"
 #undef main
 
+#include "content_dialogs.hpp"
+#include "main_menu.hpp"
+#include "status_window.hpp"
+
+#include <imgui_internal.h>
+#include <optional>
+#include <unordered_map>
+
+using namespace cw;
+
 namespace {
 
 struct RecordedItem {
@@ -604,28 +614,44 @@ TEST_CASE("Achievement Editor freezes the live columns only during a test that l
     CHECK(frozen_columns(450.0f) == 0); // they would leave too little room for the other columns
 }
 
-TEST_CASE("Achievement Tester keeps its row buttons inside the window with a large font") {
+TEST_CASE("Achievement Tester keeps its row buttons inside the table with a large font") {
     WindowsHarness app;
     app.tester_ui.title = "Good";
     app.tester_ui.logic = "0xH000010=1";
     app.click("Achievement Tester", "Add");
 
+    const auto tester_table = [] {
+        ImGuiContext& context = *ImGui::GetCurrentContext();
+        const ImGuiTable* found = nullptr;
+        for (int i = 0; i < context.Tables.GetMapSize(); ++i) {
+            const ImGuiTable* table = context.Tables.TryGetMapData(i);
+            if (table && table->ColumnsCount == 5 &&
+                table->LastFrameActive == ImGui::GetFrameCount() &&
+                std::string_view(table->OuterWindow->RootWindow->Name) == "Achievement Tester")
+                found = table;
+        }
+        return found;
+    };
+
+    // The table was first drawn with the smaller default font, as after changing the font size.
     cw::UiSettings settings = app.appearance->settings();
     settings.font_size = 19;
     app.appearance->change(settings);
     app.appearance->begin_frame();
-    const ImGuiWindow* window = ImGui::FindWindowByName("Achievement Tester");
-    REQUIRE(window != nullptr);
-    for (const float width : {1200.0f, 900.0f, 600.0f, 400.0f}) {
+    for (const float width : {1200.0f, 1000.0f, 900.0f, 600.0f, 400.0f}) {
         CAPTURE(width);
         ImGui::SetWindowSize("Achievement Tester", ImVec2(width, 880.0f));
         app.frame();
         app.frame();
+        const ImGuiTable* table = tester_table();
+        REQUIRE(table != nullptr);
+        // Widths saved by an older version must not bring a too narrow column back.
+        CHECK((table->Flags & ImGuiTableFlags_NoSavedSettings) != 0);
         for (const char* label : {"Re-arm", "Remove"}) {
             CAPTURE(label);
             const RecordedItem* item = app.find("Achievement Tester", label);
             REQUIRE(item != nullptr);
-            CHECK(item->rect.Max.x <= window->Pos.x + window->Size.x);
+            CHECK(item->rect.Max.x <= table->OuterRect.Max.x);
         }
     }
 

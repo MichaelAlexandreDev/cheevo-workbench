@@ -120,18 +120,22 @@ void draw_achievement_tester(LogicTester& tester, AchievementTesterUi& state,
 
     std::optional<uint32_t> rearm_id;
     std::optional<uint32_t> remove_id;
-    if (ImGui::BeginTable("achievements", 5,
+    // The buttons' column depends on the font, and a table keeps its column widths: without saved
+    // settings and with the font size in its ID, it always starts from the current size.
+    const std::string table_id = "achievements_" + std::to_string(ImGui::GetFontSize());
+    if (ImGui::BeginTable(table_id.c_str(), 5,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
-                              ImGuiTableFlags_Resizable)) {
+                              ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::TableSetupColumn("Title");
         ImGui::TableSetupColumn("State");
         ImGui::TableSetupColumn("Measured");
         ImGui::TableSetupColumn("Logic");
         // Fixed to fit its buttons, because this table does not scroll sideways.
         const ImGuiStyle& style = ImGui::GetStyle();
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,
+        ImGui::TableSetupColumn("",
+                                ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize,
                                 ImGui::CalcTextSize("Re-arm").x + ImGui::CalcTextSize("Remove").x +
-                                    style.FramePadding.x * 2.0f + style.ItemSpacing.x);
+                                    style.FramePadding.x * 4.0f + style.ItemSpacing.x);
         ImGui::TableHeadersRow();
         for (const TestedAchievement& a : tester.achievements()) {
             ImGui::PushID(static_cast<int>(a.id));
