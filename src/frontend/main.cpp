@@ -24,6 +24,7 @@
 #include "ui_appearance.hpp"
 #include "ui_fonts.hpp"
 #include "ui_scale.hpp"
+#include "ui_widgets.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_dialog.h>
@@ -60,6 +61,17 @@
 #include <vector>
 
 namespace {
+
+using cw::directory_exists;
+using cw::draw_code_note_load_errors;
+using cw::draw_note_preview;
+using cw::has_byte_order;
+using cw::input_text_multiline_string;
+using cw::input_text_string;
+using cw::kMemoryValueSizes;
+using cw::memory_value_size_label;
+using cw::parse_hex_value;
+using cw::set_bookmark_message;
 
 constexpr const char* kUsage =
     "Usage: cheevo-workbench [--core <core.so>] [--system <bios dir>] [game]\n"
@@ -300,32 +312,6 @@ void report_message(UiState& ui, Notice& notice, const std::string& text, bool o
     show_notice(notice, text, ok);
 }
 
-bool directory_exists(const std::filesystem::path& path);
-
-int string_input_callback(ImGuiInputTextCallbackData* data) {
-    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
-        auto* value = static_cast<std::string*>(data->UserData);
-        value->resize(static_cast<size_t>(data->BufTextLen));
-        data->Buf = value->data();
-    }
-    return 0;
-}
-
-bool input_text_string(const char* label, std::string& value, ImGuiInputTextFlags flags = 0) {
-    value.reserve(value.size() + 1);
-    return ImGui::InputText(label, value.data(), value.capacity() + 1,
-                            flags | ImGuiInputTextFlags_CallbackResize, string_input_callback,
-                            &value);
-}
-
-bool input_text_multiline_string(const char* label, std::string& value, const ImVec2& size,
-                                 ImGuiInputTextFlags flags = 0) {
-    value.reserve(value.size() + 1);
-    return ImGui::InputTextMultiline(label, value.data(), value.capacity() + 1, size,
-                                     flags | ImGuiInputTextFlags_CallbackResize,
-                                     string_input_callback, &value);
-}
-
 std::filesystem::path load_directory_setting(const std::filesystem::path& config_dir,
                                              const char* filename) {
     if (config_dir.empty()) {
@@ -414,20 +400,6 @@ void sync_bookmarks(const UiState& ui, const std::filesystem::path& data_dir,
     state.message_is_error = false;
 }
 
-void set_bookmark_message(std::string& message, bool& is_error, bool succeeded,
-                          const std::string& error, std::string_view success, bool has_game_id) {
-    if (!succeeded) {
-        message = error;
-        is_error = true;
-    } else if (!error.empty()) {
-        message = error;
-        is_error = false;
-    } else {
-        message = success;
-        is_error = !has_game_id;
-    }
-}
-
 bool save_bookmark_description(cw::Bookmarks& bookmarks, WatchListUiState& state, uint64_t row_id,
                                const std::string& description) {
     const auto found = std::find_if(bookmarks.items().begin(), bookmarks.items().end(),
@@ -480,27 +452,6 @@ bool note_matches_filter(const cw::CodeNote& note, std::string_view source,
            lowercase_ascii(note.note).find(needle) != std::string::npos ||
            lowercase_ascii(source).find(needle) != std::string::npos ||
            lowercase_ascii(note.author).find(needle) != std::string::npos;
-}
-
-void draw_note_preview(const cw::CodeNote* note) {
-    if (!note) {
-        ImGui::TextDisabled("--");
-        return;
-    }
-    const size_t end = note->note.find('\n');
-    ImGui::TextUnformatted(note->note.data(), end == std::string::npos
-                                                  ? note->note.data() + note->note.size()
-                                                  : note->note.data() + end);
-}
-
-void draw_code_note_load_errors(const cw::CodeNotes& notes) {
-    const ImVec4 color(1.0f, 0.45f, 0.4f, 1.0f);
-    if (!notes.user_error().empty()) {
-        ImGui::TextColored(color, "%s", notes.user_error().c_str());
-    }
-    if (!notes.server_error().empty()) {
-        ImGui::TextColored(color, "%s", notes.server_error().c_str());
-    }
 }
 
 // Shift+F1..F4 saves slot 1..4, F1..F4 loads it. RouteGlobal keeps them active in tool windows.
@@ -619,11 +570,6 @@ void begin_open_dialog(UiState& ui, DialogQueue& queue, SDL_Window* window, Dial
         static_cast<int>(callback_data->filters.size()),
         callback_data->initial_location.empty() ? nullptr : callback_data->initial_location.c_str(),
         false);
-}
-
-bool directory_exists(const std::filesystem::path& path) {
-    std::error_code error;
-    return !path.empty() && std::filesystem::is_directory(path, error) && !error;
 }
 
 std::filesystem::path default_core_directory(const std::filesystem::path& config) {
@@ -964,45 +910,6 @@ void draw_memory_summary(const cw::LibretroCore& core) {
                           region.description.c_str(), region.available ? "" : " (unavailable)",
                           region.available && !region.writable ? " (read-only)" : "");
     }
-}
-
-constexpr std::array<std::pair<cw::MemoryValueSize, const char*>, 14> kMemoryValueSizes = {{
-    {cw::MemoryValueSize::Bit0, "Bit 0"},
-    {cw::MemoryValueSize::Bit1, "Bit 1"},
-    {cw::MemoryValueSize::Bit2, "Bit 2"},
-    {cw::MemoryValueSize::Bit3, "Bit 3"},
-    {cw::MemoryValueSize::Bit4, "Bit 4"},
-    {cw::MemoryValueSize::Bit5, "Bit 5"},
-    {cw::MemoryValueSize::Bit6, "Bit 6"},
-    {cw::MemoryValueSize::Bit7, "Bit 7"},
-    {cw::MemoryValueSize::LowNibble, "Low nibble"},
-    {cw::MemoryValueSize::HighNibble, "High nibble"},
-    {cw::MemoryValueSize::EightBit, "8-bit"},
-    {cw::MemoryValueSize::SixteenBit, "16-bit"},
-    {cw::MemoryValueSize::TwentyFourBit, "24-bit"},
-    {cw::MemoryValueSize::ThirtyTwoBit, "32-bit"},
-}};
-
-constexpr bool has_byte_order(cw::MemoryValueSize size) {
-    return size == cw::MemoryValueSize::SixteenBit || size == cw::MemoryValueSize::TwentyFourBit ||
-           size == cw::MemoryValueSize::ThirtyTwoBit;
-}
-
-const char* memory_value_size_label(cw::MemoryValueSize size) {
-    const auto found = std::find_if(kMemoryValueSizes.begin(), kMemoryValueSizes.end(),
-                                    [size](const auto& entry) { return entry.first == size; });
-    return found == kMemoryValueSizes.end() ? "Unknown" : found->second;
-}
-
-bool parse_hex_value(std::string_view text, uint32_t& value) {
-    if (text.starts_with("0x") || text.starts_with("0X")) {
-        text.remove_prefix(2);
-    }
-    if (text.empty()) {
-        return false;
-    }
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value, 16);
-    return error == std::errc{} && end == text.data() + text.size();
 }
 
 void set_memory_address_input(MemoryViewerState& viewer, uint32_t address) {
