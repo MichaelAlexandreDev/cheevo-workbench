@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <fstream>
 #include <system_error>
 
 namespace cw {
@@ -88,6 +89,44 @@ bool parse_hex_value(std::string_view text, uint32_t& value) {
     }
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value, 16);
     return error == std::errc{} && end == text.data() + text.size();
+}
+
+bool save_directory_setting(const std::filesystem::path& config_dir, const char* filename,
+                            const std::string& path_text, std::filesystem::path& saved_path,
+                            std::string& error) {
+    if (config_dir.empty()) {
+        error = "The configuration directory is unavailable; the path cannot be saved.";
+        return false;
+    }
+    const std::filesystem::path path(path_text);
+    if (!path.empty() && !path.is_absolute()) {
+        error = "Enter an absolute directory path, or leave it empty.";
+        return false;
+    }
+    if (!path.empty() && !directory_exists(path)) {
+        error = "The selected directory does not exist.";
+        return false;
+    }
+
+    if (path_text.find_first_of("\r\n") != std::string::npos) {
+        error = "The directory path cannot contain line breaks.";
+        return false;
+    }
+    const std::filesystem::path file = config_dir / filename;
+    std::ofstream output(file, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        error = "Could not write " + file.string();
+        return false;
+    }
+    output << path_text << '\n';
+    output.close();
+    if (!output) {
+        error = "Could not finish writing " + file.string();
+        return false;
+    }
+    saved_path = path;
+    error.clear();
+    return true;
 }
 
 } // namespace cw

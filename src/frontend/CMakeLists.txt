@@ -24,6 +24,7 @@ add_executable(cheevo-workbench
     achievement_editor_window.cpp
     assisted_search_window.cpp
     authoring_window.cpp
+    code_notes_window.cpp
     game_view.cpp
     main.cpp
     memory_search_window.cpp

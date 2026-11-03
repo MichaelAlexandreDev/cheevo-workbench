@@ -13,6 +13,7 @@
 namespace cw {
 
 class LibretroCore;
+struct CodeNotesUiState;
 
 struct MemoryViewerState {
     bool open = false;
@@ -32,24 +33,6 @@ struct MemoryViewerState {
     ByteChangeTracker changes; // highlights recent changes for ~1 s of emulated frames
     std::vector<MemoryRegionInfo> previous_regions;
     std::string previous_game_path;
-};
-
-// The Code Notes window owns this state; the Memory Viewer edits the selected address's note.
-struct CodeNotesUiState {
-    bool open = false;
-    std::string filter;
-    std::string note_editor;
-    std::optional<uint32_t> note_editor_address;
-    std::string editor_message;
-    bool editor_message_is_error = false;
-    std::string ra_cache_path_input;
-    std::filesystem::path ra_cache_dir;
-    std::string cache_message;
-    bool cache_message_is_error = false;
-    bool notes_loaded = false;
-    std::optional<uint32_t> loaded_game_id;
-    std::filesystem::path loaded_data_dir;
-    std::filesystem::path loaded_ra_cache_dir;
 };
 
 void draw_memory_viewer(LibretroCore& core, MemoryViewerState& viewer, Bookmarks& bookmarks,

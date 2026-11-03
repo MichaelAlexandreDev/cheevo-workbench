@@ -40,6 +40,10 @@ constexpr bool has_byte_order(MemoryValueSize size) {
 const char* memory_value_size_label(MemoryValueSize size);
 bool parse_hex_value(std::string_view text, uint32_t& value);
 bool directory_exists(const std::filesystem::path& path);
+// Remembers a directory in `filename` under the configuration directory. An empty path clears it.
+bool save_directory_setting(const std::filesystem::path& config_dir, const char* filename,
+                            const std::string& path_text, std::filesystem::path& saved_path,
+                            std::string& error);
 
 bool input_text_string(const char* label, std::string& value, ImGuiInputTextFlags flags = 0);
 bool input_text_multiline_string(const char* label, std::string& value, const ImVec2& size,

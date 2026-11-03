@@ -1,5 +1,6 @@
 #include "memory_viewer_window.hpp"
 
+#include "code_notes_window.hpp"
 #include "libretro_core.hpp"
 #include "ui_scale.hpp"
 #include "ui_widgets.hpp"
