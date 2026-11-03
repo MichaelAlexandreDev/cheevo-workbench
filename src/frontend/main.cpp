@@ -16,6 +16,7 @@
 #include "frame_pacer.hpp"
 #include "game_ids.hpp"
 #include "game_view.hpp"
+#include "gamepad_input.hpp"
 #include "input_state.hpp"
 #include "libretro_core.hpp"
 #include "logic_tester_window.hpp"
@@ -69,6 +70,7 @@
 namespace {
 
 using cw::AchievementTesterUi;
+using cw::close_gamepad;
 using cw::CodeNotesUiState;
 using cw::directory_exists;
 using cw::draw_achievement_tester;
@@ -79,6 +81,8 @@ using cw::draw_memory_viewer;
 using cw::draw_note_preview;
 using cw::draw_watch_list;
 using cw::flush_pending_bookmark_descriptions;
+using cw::gamepad_names;
+using cw::Gamepads;
 using cw::has_byte_order;
 using cw::input_text_multiline_string;
 using cw::input_text_string;
@@ -88,7 +92,10 @@ using cw::memory_value_size_label;
 using cw::MemorySearchState;
 using cw::MemoryViewerState;
 using cw::Notice;
+using cw::open_connected_gamepads;
+using cw::open_gamepad;
 using cw::parse_hex_value;
+using cw::pressed_button_names;
 using cw::record_logic_events;
 using cw::report_message;
 using cw::save_directory_setting;
@@ -96,6 +103,7 @@ using cw::set_bookmark_message;
 using cw::show_notice;
 using cw::sync_achievement_tester;
 using cw::UiState;
+using cw::update_input;
 using cw::WatchListUiState;
 
 constexpr const char* kUsage =
@@ -571,110 +579,6 @@ void handle_dialog_results(UiState& ui, DialogQueue& queue, Notice& notice, cw::
         }
     }
     remove_finished_dialogs(queue);
-}
-
-struct OpenGamepad {
-    SDL_Gamepad* handle = nullptr;
-    std::string name;
-};
-
-using Gamepads = std::unordered_map<SDL_JoystickID, OpenGamepad>;
-
-void open_gamepad(SDL_JoystickID id, Gamepads& gamepads) {
-    if (gamepads.contains(id) || !SDL_IsGamepad(id)) {
-        return;
-    }
-    SDL_Gamepad* handle = SDL_OpenGamepad(id);
-    if (!handle) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Could not open gamepad %d: %s", id, SDL_GetError());
-        return;
-    }
-    const char* name = SDL_GetGamepadName(handle);
-    gamepads.emplace(id, OpenGamepad{handle, name ? name : "Unknown gamepad"});
-    SDL_Log("Opened gamepad %s (id %d)", name ? name : "Unknown gamepad", id);
-}
-
-void close_gamepad(SDL_JoystickID id, Gamepads& gamepads, cw::JoypadState& input) {
-    input.remove_source(cw::gamepad_input_source(id));
-    const auto found = gamepads.find(id);
-    if (found == gamepads.end()) {
-        return;
-    }
-    SDL_CloseGamepad(found->second.handle);
-    SDL_Log("Closed gamepad %s (id %d)", found->second.name.c_str(), id);
-    gamepads.erase(found);
-}
-
-void open_connected_gamepads(Gamepads& gamepads) {
-    int count = 0;
-    SDL_JoystickID* ids = SDL_GetGamepads(&count);
-    if (!ids && count > 0) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Could not enumerate gamepads: %s", SDL_GetError());
-        return;
-    }
-    for (int i = 0; i < count; ++i) {
-        open_gamepad(ids[i], gamepads);
-    }
-    SDL_free(ids);
-}
-
-void update_input(cw::JoypadState& input, const Gamepads& gamepads, bool window_focused,
-                  bool imgui_wants_keyboard) {
-    if (!window_focused) {
-        input.release_all();
-        return;
-    }
-
-    if (cw::keyboard_input_allowed(window_focused, imgui_wants_keyboard)) {
-        int key_count = 0;
-        const bool* keys = SDL_GetKeyboardState(&key_count);
-        uint16_t keyboard_mask = 0;
-        if (keys && key_count > 0) {
-            const bool control_pressed = (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
-            keyboard_mask = cw::map_keyboard_state(
-                std::span<const bool>(keys, static_cast<size_t>(key_count)), control_pressed);
-        }
-        input.set_source(cw::kKeyboardInputSource, keyboard_mask);
-    } else {
-        input.remove_source(cw::kKeyboardInputSource);
-    }
-
-    for (const auto& [id, gamepad] : gamepads) {
-        cw::GamepadSnapshot snapshot;
-        for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button) {
-            snapshot.buttons[static_cast<size_t>(button)] =
-                SDL_GetGamepadButton(gamepad.handle, static_cast<SDL_GamepadButton>(button));
-        }
-        snapshot.left_trigger = SDL_GetGamepadAxis(gamepad.handle, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
-        snapshot.right_trigger = SDL_GetGamepadAxis(gamepad.handle, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
-        input.set_source(cw::gamepad_input_source(id), cw::map_gamepad_state(snapshot));
-    }
-}
-
-std::string pressed_button_names(uint16_t mask) {
-    std::string names;
-    for (unsigned id = 0; id < 16; ++id) {
-        if ((mask & static_cast<uint16_t>(1U << id)) == 0) {
-            continue;
-        }
-        if (!names.empty()) {
-            names += ", ";
-        }
-        names += cw::joypad_button_name(id);
-    }
-    return names.empty() ? "none" : names;
-}
-
-std::string gamepad_names(const Gamepads& gamepads) {
-    std::string names;
-    for (const auto& [id, gamepad] : gamepads) {
-        (void)id;
-        if (!names.empty()) {
-            names += ", ";
-        }
-        names += gamepad.name;
-    }
-    return names.empty() ? "none" : names;
 }
 
 void handle_emulation_hotkeys(UiState& ui, Notice& notice, cw::LibretroCore& core,
