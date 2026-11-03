@@ -45,9 +45,12 @@ add_test(NAME cw_tests COMMAND cw_tests)
 add_executable(cw_ui_tests
     test_main.cpp
     test_authoring_ui.cpp
+    test_ui_appearance.cpp
     test_ui_fonts.cpp
     ../src/frontend/authoring_window.cpp
-    ../src/frontend/ui_fonts.cpp)
+    ../src/frontend/ui_appearance.cpp
+    ../src/frontend/ui_fonts.cpp
+    ../src/frontend/ui_settings.cpp)
 target_include_directories(cw_ui_tests PRIVATE ../src/frontend)
 target_link_libraries(cw_ui_tests PRIVATE cw_devtools imgui doctest cw_warnings ${CMAKE_DL_LIBS})
 add_test(NAME cw_ui_tests COMMAND cw_ui_tests)

@@ -1,4 +1,5 @@
 #include "assisted_search_window.hpp"
+#include "ui_scale.hpp"
 
 #include <imgui.h>
 
@@ -66,7 +67,7 @@ void AssistedSearchWindow::handle_hotkey(bool allow_keyboard) {
 std::optional<uint32_t> AssistedSearchWindow::draw(const MemoryReader& memory, bool game_loaded) {
     if (!open)
         return {};
-    ImGui::SetNextWindowSize(ImVec2(850, 550), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(cw::ui_px(850.0f), cw::ui_px(550.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Assisted Search", &open)) {
         ImGui::End();
         return {};

@@ -105,6 +105,10 @@ split into 7a (read-only: login, hash → game ID, fetch assets/notes) and 7b (w
 
 ## Later / optional
 
+- Interface settings: font size (10-48) and system font choice saved in `ui-settings.txt`, UI
+  measurements that follow the font size, and View -> Reset Layout. Implemented and tested on screen
+  by the user on 2026-11-03.
+
 - Japanese UI text (issue #40): implemented with an optional installed Japanese font merged into
   ImGui's default font; headless tests cover Japanese glyph rasterization and the default fallback.
   No font is bundled. Visual confirmation in the running application remains pending.

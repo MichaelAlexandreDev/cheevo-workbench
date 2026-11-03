@@ -26,7 +26,9 @@ add_executable(cheevo-workbench
     authoring_window.cpp
     game_view.cpp
     main.cpp
-    ui_fonts.cpp)
+    ui_appearance.cpp
+    ui_fonts.cpp
+    ui_settings.cpp)
 target_link_libraries(cheevo-workbench PRIVATE
     cw_devtools cw_frontend imgui libretro_api SDL3::SDL3 OpenGL::GL cw_warnings ${CMAKE_DL_LIBS})
 target_compile_definitions(cheevo-workbench PRIVATE CW_VERSION="${PROJECT_VERSION}")

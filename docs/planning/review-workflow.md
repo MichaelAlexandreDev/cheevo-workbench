@@ -31,10 +31,12 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
   1. One combined manual validation route for the pending steps above. The achievement `-User.txt`
      round trip with RAIntegration already passed (see the milestone 4 note in `docs/roadmap.md`);
      extend it to leaderboards, Rich Presence, code notes and bookmarks.
-  2. Add a layout reset and, if the user needs it, a UI scale option (the user has low vision).
-  3. CI (build, tests, ASan/UBSan) using the synthetic core.
-  4. Split `src/frontend/main.cpp` one window per PR, with no behavior change.
-  5. Choose a license before the repository is ever made public.
+  2. CI (build, tests, ASan/UBSan) using the synthetic core. LeakSanitizer needs a suppression for
+     a small fixed leak inside fontconfig's XML parser.
+  3. Split `src/frontend/main.cpp` one window per PR, with no behavior change.
+  4. Choose a license before the repository is ever made public.
+- The user has low vision, so UI size and legibility are requirements. New fixed measurements must
+  use `cw::ui_px()` so they follow the user's font size.
 - The official tools for this check live outside the repository in
   `~/.local/share/cheevo-workbench-tools/` (launcher `ralibretro.sh`, dedicated Wine prefix).
 - An English fan translation of the game exists locally in `.utils/` (RA hash
@@ -123,5 +125,8 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
   does not undo it (see `LogicTester::reset`). Callbacks without user data use `thread_local`.
 - Writes to user files: unique tmp + atomic rename; never overwrite a file that failed to parse.
 - Verify performance claims by measuring; report modest gains honestly.
+- ImGui's `ClearFonts()` writes its previous font size back into the style: set the new size after
+  calling it. Do not unload fontconfig between queries, because it would leak and rebuild its
+  configuration each time.
 - rcheevos triggers start in Waiting: logic that is always true never fires. Test triggers with
   logic that is false first, such as a hit target or a value that changes.

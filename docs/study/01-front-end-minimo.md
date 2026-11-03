@@ -1067,3 +1067,46 @@ do jogo funcionaram na interface real.
 5. Como um arquivo de recentes corrompido evita tanto travar quanto carregar só metade dos pares?
 6. Rode com `--core` e jogo pela linha de comando, feche o conteúdo e reabra pelo menu Recent. O que
    fica persistido em configuração e o que fica em dados?
+
+## Configurações da interface
+
+### O que foi feito
+
+**View → Interface Settings** escolhe o tamanho da fonte (10 a 48) e uma fonte instalada no sistema,
+e a escolha fica salva em `ui-settings.txt`. **View → Reset Layout** tira as janelas do encaixe e as
+coloca de volta dentro da tela. Você testou tudo na tela em 2026-11-03.
+
+### Conceitos
+
+- **Acessibilidade é requisito:** a ferramenta será usada pela comunidade, e cada pessoa precisa
+  conseguir ajustar a interface para enxergar bem.
+- **Mudanças entre frames:** fonte e layout só podem mudar fora da construção de um frame. Por isso
+  `UiAppearance::change()` guarda o pedido e `begin_frame()` aplica antes do próximo.
+- **`cw::ui_px()`:** converte uma medida pensada para a fonte padrão na escala atual. Sem isso, a
+  fonte cresce e a coluna continua estreita, cortando o texto.
+- **Estilo base:** a escala sempre parte do estilo original. Escalar o estilo já escalado acumularia
+  o erro a cada mudança.
+
+### Arquivos para ler
+
+1. `src/frontend/ui_appearance.cpp`: aplica as preferências, desenha a janela e faz o Reset Layout.
+2. `src/frontend/ui_settings.cpp`: lê e grava o arquivo, com valores padrão para dados inválidos.
+3. `src/frontend/ui_fonts.cpp`: lista as fontes do sistema e carrega a fonte escolhida.
+4. `src/frontend/ui_scale.hpp`: define `cw::ui_px()`.
+5. `tests/test_ui_appearance.cpp`: testa tudo isso sem abrir janela.
+
+### Problemas encontrados
+
+- **O tamanho não mudava com o programa aberto:** `ClearFonts()` devolve o tamanho antigo ao estilo.
+  O teste pegou isso, e agora o tamanho é definido depois dessa chamada.
+- **Vazamento no fontconfig:** carregar e descarregar a biblioteca a cada consulta vazaria cerca de
+  700 KB por mudança de fonte. Agora ela fica carregada e a busca da fonte japonesa acontece uma vez.
+- **Fonte danificada:** o ImGui pararia em um assert. Agora a ferramenta volta à fonte padrão e mostra
+  uma mensagem.
+
+### Para fixar
+
+1. Por que uma mudança de fonte espera o próximo frame?
+2. O que aconteceria se a escala partisse do estilo já escalado?
+3. Por que uma nova largura fixa no código deve usar `cw::ui_px()`?
+4. Exercício: procure uma largura fixa em `main.cpp` e calcule o valor dela com fonte 26.

@@ -12,7 +12,7 @@ void check_fonts(bool discover_system_font) {
     io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
     io.DisplaySize = ImVec2(800, 600);
     io.DeltaTime = 1.0f / 60.0f;
-    const auto path = cw::configure_ui_fonts(*io.Fonts, discover_system_font);
+    const auto path = cw::configure_ui_fonts(*io.Fonts, {}, 0, discover_system_font).japanese_font;
     if (!discover_system_font)
         CHECK(path.empty());
     ImGui::NewFrame();

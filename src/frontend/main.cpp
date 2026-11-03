@@ -21,7 +21,9 @@
 #include "save_states.hpp"
 #include "sdl_audio_output.hpp"
 #include "session_state.hpp"
+#include "ui_appearance.hpp"
 #include "ui_fonts.hpp"
+#include "ui_scale.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_dialog.h>
@@ -1243,7 +1245,7 @@ void draw_memory_code_note_editor(MemoryViewerState& viewer, CodeNotesUiState& s
         ImGui::TextWrapped("%s", notes.user_error().c_str());
     }
     ImGui::Text("Address 0x%06X", address);
-    input_text_multiline_string("My note", state.note_editor, ImVec2(-FLT_MIN, 100.0f));
+    input_text_multiline_string("My note", state.note_editor, ImVec2(-FLT_MIN, cw::ui_px(100.0f)));
     if (ImGui::Button("Save note")) {
         std::string error;
         if (notes.set_note(address, state.note_editor, error)) {
@@ -1292,7 +1294,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer, cw::B
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(1050.0f, 650.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(cw::ui_px(1050.0f), cw::ui_px(650.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Memory Viewer", &viewer.open)) {
         ImGui::End();
         return;
@@ -1369,7 +1371,7 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer, cw::B
         ImGui::EndCombo();
     }
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(150.0f);
+    ImGui::SetNextItemWidth(cw::ui_px(150.0f));
     const bool go_submitted = ImGui::InputText(
         "Address (hex)", viewer.address_input, sizeof(viewer.address_input),
         ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
@@ -1483,7 +1485,8 @@ void draw_memory_viewer(cw::LibretroCore& core, MemoryViewerState& viewer, cw::B
                                                   ImVec4(1.0f, 0.75f, 0.25f, 0.35f + 0.65f * fade));
                         }
                         ImGui::PushID(static_cast<int>(i));
-                        if (ImGui::Selectable(byte_label, selected, 0, ImVec2(24.0f, 0.0f))) {
+                        if (ImGui::Selectable(byte_label, selected, 0,
+                                              ImVec2(cw::ui_px(24.0f), 0.0f))) {
                             viewer.selected_address = address;
                             set_memory_address_input(viewer, address);
                             viewer.has_selection = true;
@@ -1542,7 +1545,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(cw::ui_px(900.0f), cw::ui_px(600.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Memory Search", &state.open)) {
         ImGui::End();
         return;
@@ -1744,7 +1747,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
     }
     if (state.reference == cw::MemorySearchReference::Constant) {
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(100.0f);
+        ImGui::SetNextItemWidth(cw::ui_px(100.0f));
         ImGui::InputText("Value (hex)", state.constant_input, sizeof(state.constant_input),
                          ImGuiInputTextFlags_CharsHexadecimal);
     }
@@ -1810,7 +1813,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             ImGui::TableSetupColumn("Previous");
             ImGui::TableSetupColumn("First snapshot");
             ImGui::TableSetupColumn("Note");
-            ImGui::TableSetupColumn("Watch", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+            ImGui::TableSetupColumn("Watch", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(64.0f));
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
 
@@ -1886,7 +1889,7 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(900.0f, 460.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(cw::ui_px(900.0f), cw::ui_px(460.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Watch List", &state.open)) {
         ImGui::End();
         return;
@@ -2101,12 +2104,12 @@ void draw_watch_list(cw::Bookmarks& bookmarks, WatchListUiState& state, MemoryVi
                                      ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX |
                                      ImGuiTableFlags_ScrollY,
                                  ImVec2(0.0f, 0.0f))) {
-        ImGui::TableSetupColumn("Order", ImGuiTableColumnFlags_WidthFixed, 88.0f);
-        ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 112.0f);
-        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-        ImGui::TableSetupColumn("Current", ImGuiTableColumnFlags_WidthFixed, 112.0f);
-        ImGui::TableSetupColumn("Format", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-        ImGui::TableSetupColumn("Previous", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Order", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(88.0f));
+        ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(112.0f));
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(100.0f));
+        ImGui::TableSetupColumn("Current", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(112.0f));
+        ImGui::TableSetupColumn("Format", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(70.0f));
+        ImGui::TableSetupColumn("Previous", ImGuiTableColumnFlags_WidthFixed, cw::ui_px(100.0f));
         ImGui::TableSetupColumn("Label");
         ImGui::TableSetupColumn("Note");
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -2286,7 +2289,7 @@ void draw_code_notes_window(cw::CodeNotes& notes, CodeNotesUiState& state,
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(900.0f, 580.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(cw::ui_px(900.0f), cw::ui_px(580.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Code Notes", &state.open)) {
         ImGui::End();
         return;
@@ -2587,9 +2590,9 @@ void draw_achievement_tester(cw::LogicTester& tester, AchievementTesterUi& state
     }
     ImGui::TextWrapped("Type achievement logic and watch it live. Nothing is unlocked or sent "
                        "anywhere: this only evaluates the conditions every emulated frame.");
-    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SetNextItemWidth(cw::ui_px(220.0f));
     input_text_string("Title", state.title);
-    ImGui::SetNextItemWidth(-80.0f);
+    ImGui::SetNextItemWidth(-cw::ui_px(80.0f));
     const bool submitted =
         input_text_string("Logic", state.logic, ImGuiInputTextFlags_EnterReturnsTrue);
     if (ImGui::Button("Add") || submitted) {
@@ -2691,7 +2694,7 @@ void draw_system_directory(UiState& ui, Notice& notice, DialogQueue& dialogs, SD
     if (!ui.system_directory_open) {
         return;
     }
-    ImGui::SetNextWindowSize(ImVec2(520.0f, 240.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(cw::ui_px(520.0f), cw::ui_px(240.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("System (BIOS) Directory", &ui.system_directory_open)) {
         ImGui::End();
         return;
@@ -2735,7 +2738,7 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
                     WatchListUiState& watch_list, CodeNotesUiState& code_notes,
                     AchievementTesterUi& achievement_tester, cw::LogicTester& tester,
                     bool& achievement_editor_open, cw::AuthoringWindow& authoring,
-                    cw::AssistedSearchWindow& assisted_search) {
+                    cw::AssistedSearchWindow& assisted_search, cw::UiAppearance& appearance) {
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal)) {
         ui.quit = true;
     }
@@ -2839,6 +2842,11 @@ void draw_main_menu(UiState& ui, Notice& notice, cw::LibretroCore& core,
         ImGui::MenuItem("Rich Presence", nullptr, &authoring.rich_presence_open);
         ImGui::MenuItem("Leaderboards", nullptr, &authoring.leaderboards_open);
         ImGui::MenuItem("Dear ImGui demo", nullptr, &ui.show_imgui_demo);
+        ImGui::Separator();
+        ImGui::MenuItem("Interface Settings", nullptr, &appearance.window_open());
+        if (ImGui::MenuItem("Reset Layout")) {
+            appearance.request_layout_reset();
+        }
         ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -2897,7 +2905,7 @@ void draw_game_identity(UiState& ui, cw::GameIds& ids, Notice& notice) {
     if (ImGui::SmallButton("Copy")) {
         ImGui::SetClipboardText(ui.game_hash.c_str());
     }
-    ImGui::SetNextItemWidth(100.0f);
+    ImGui::SetNextItemWidth(cw::ui_px(100.0f));
     ImGui::InputText("##game_id", ui.game_id_input, sizeof(ui.game_id_input),
                      ImGuiInputTextFlags_CharsDecimal);
     ImGui::SameLine();
@@ -3049,11 +3057,10 @@ int main(int argc, char** argv) {
     game_ids.load();
 
     ImGui::StyleColorsDark();
-    ImGui::GetStyle().ScaleAllSizes(scale);
-    ImGui::GetStyle().FontScaleDpi = scale;
-    const auto japanese_font = cw::configure_ui_fonts(*io.Fonts);
-    if (!japanese_font.empty())
-        SDL_Log("Japanese UI font: %s", japanese_font.c_str());
+    cw::UiAppearance appearance(
+        config.empty() ? std::filesystem::path{} : config / "ui-settings.txt", scale);
+    if (!appearance.japanese_font().empty())
+        SDL_Log("Japanese UI font: %s", appearance.japanese_font().c_str());
 
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -3164,6 +3171,7 @@ int main(int argc, char** argv) {
         // rather than calling a swap that can still block on an occluded window.
         const bool can_present = !minimized && (window_focused || applied_swap_interval == 0);
 
+        appearance.begin_frame(); // font and layout changes are only safe between frames
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -3237,7 +3245,8 @@ int main(int argc, char** argv) {
         draw_main_menu(ui, notice, core, save_states, recent, game_view, dialogs, window, config,
                        memory_viewer, memory_search, watch_list_ui, code_notes_ui,
                        achievement_tester_ui, logic_tester, achievement_editor.open, authoring,
-                       assisted_search);
+                       assisted_search, appearance);
+        appearance.draw_window();
         assisted_search.sync(ui.game_session_generation, ui.memory_history_generation,
                              core.is_game_loaded());
         draw_system_directory(ui, notice, dialogs, window, config, data);

@@ -15,7 +15,8 @@ with the official Windows toolkit (RALibretro + RAIntegration). The step-by-step
 4.3–4.4 and 5.1 approved for merge after partial manual testing (latest notes layout fix awaits
 manual confirmation); 6.1–6.2 implemented and unit-tested, awaiting manual UI validation;
 2.6 implemented after algorithm approval (issue #35), awaiting manual UI validation;
-Japanese UI font fallback implemented (issue #40), with headless glyph tests
+Japanese UI font fallback implemented (issue #40), with headless glyph tests;
+interface font and layout settings implemented and tested on screen
 
 **Approach:** written from scratch (not a port of RALibretro/RAIntegration). Shallow clones of
 `RALibretro` (GPL-3.0), `RAIntegration` (MIT) and `rcheevos` (MIT) live in `reference/`

@@ -2,6 +2,7 @@
 #include "cw/devtools/achievement_editor.hpp"
 #include "cw/devtools/code_note_draft.hpp"
 #include "cw/devtools/editor_live_test.hpp"
+#include "ui_scale.hpp"
 
 #include <imgui.h>
 
@@ -325,9 +326,11 @@ struct AchievementEditorWindow::Impl {
         const ImVec2 maximum(std::max(1.0f, viewport->WorkSize.x - 20),
                              std::max(1.0f, viewport->WorkSize.y - 20));
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(320.0f, maximum.x), std::min(240.0f, maximum.y)), maximum);
-        ImGui::SetNextWindowSize(ImVec2(std::min(560.0f, maximum.x), std::min(500.0f, maximum.y)),
-                                 ImGuiCond_Appearing);
+            ImVec2(std::min(cw::ui_px(320.0f), maximum.x), std::min(cw::ui_px(240.0f), maximum.y)),
+            maximum);
+        ImGui::SetNextWindowSize(
+            ImVec2(std::min(cw::ui_px(560.0f), maximum.x), std::min(cw::ui_px(500.0f), maximum.y)),
+            ImGuiCond_Appearing);
         if (!ImGui::BeginPopupModal("Edit code note", nullptr))
             return;
         if (note_draft.open()) {
@@ -338,7 +341,8 @@ struct AchievementEditorWindow::Impl {
                 ImGui::TextUnformatted("Cached server note (read-only)");
                 if (!server->author.empty())
                     ImGui::Text("By %s", server->author.c_str());
-                if (ImGui::BeginChild("server_note", ImVec2(0, 90), ImGuiChildFlags_Borders)) {
+                if (ImGui::BeginChild("server_note", ImVec2(0, cw::ui_px(90.0f)),
+                                      ImGuiChildFlags_Borders)) {
                     ImGui::PushTextWrapPos();
                     ImGui::TextUnformatted(server->note.c_str());
                     ImGui::PopTextWrapPos();
@@ -729,16 +733,19 @@ struct AchievementEditorWindow::Impl {
             // Fixed minimum content widths keep all controls reachable on narrow windows.
             const float height = std::max(ImGui::GetTextLineHeightWithSpacing() * 5,
                                           ImGui::GetContentRegionAvail().y - 100);
-            if (ImGui::BeginTable("conditions", 12, table_flags, ImVec2(0, height), 1450)) {
-                ImGui::TableSetupColumn("Last result", ImGuiTableColumnFlags_WidthFixed, 100);
-                ImGui::TableSetupColumn("Current hits", ImGuiTableColumnFlags_WidthFixed, 100);
+            if (ImGui::BeginTable("conditions", 12, table_flags, ImVec2(0, height),
+                                  cw::ui_px(1475.0f))) {
+                ImGui::TableSetupColumn("Last result", ImGuiTableColumnFlags_WidthFixed,
+                                        cw::ui_px(100.0f));
+                ImGui::TableSetupColumn("Current hits", ImGuiTableColumnFlags_WidthFixed,
+                                        cw::ui_px(100.0f));
                 for (const auto* name :
-                     {"Flag", "Left type", "Left size", "Address / value", "Op", "Right type",
+                     {"Flag", "Left type", "Left size", "Address / value", "Compare", "Right type",
                       "Right size", "Address / value ", "Hits", "Actions"})
                     ImGui::TableSetupColumn(name, ImGuiTableColumnFlags_WidthFixed,
-                                            std::string_view(name) == "Op"     ? 65.0f
-                                            : std::string_view(name) == "Hits" ? 65.0f
-                                                                               : 125.0f);
+                                            cw::ui_px(std::string_view(name) == "Compare" ? 90.0f
+                                                      : std::string_view(name) == "Hits" ? 65.0f
+                                                                                         : 125.0f));
                 ImGui::TableSetupScrollFreeze(2, 1);
                 ImGui::TableHeadersRow();
                 ImGui::PushID(static_cast<int>(g));
@@ -960,7 +967,7 @@ struct AchievementEditorWindow::Impl {
         Action action;
         bool changed = false;
         if (editor.loaded()) {
-            ImGui::SetNextItemWidth(-100);
+            ImGui::SetNextItemWidth(-cw::ui_px(100.0f));
             changed |= text_input("Game title", editor.document().title);
             ImGui::BeginDisabled(!editor.input_error().empty());
             if (ImGui::Button("New achievement"))
@@ -972,7 +979,8 @@ struct AchievementEditorWindow::Impl {
                 action = {Edit::Delete};
             ImGui::EndDisabled();
             // The asset list wraps above the form on narrow windows instead of squeezing it.
-            if (ImGui::BeginChild("asset_list", ImVec2(0, 100), ImGuiChildFlags_Borders)) {
+            if (ImGui::BeginChild("asset_list", ImVec2(0, cw::ui_px(100.0f)),
+                                  ImGuiChildFlags_Borders)) {
                 for (size_t i = 0; i < editor.document().entries.size(); ++i) {
                     const auto* asset =
                         std::get_if<LocalAchievement>(&editor.document().entries[i].asset);
@@ -989,11 +997,11 @@ struct AchievementEditorWindow::Impl {
             ImGui::EndChild();
             if (auto* asset = editor.selected()) {
                 ImGui::PushID(static_cast<int>(editor.revision() & 0x7fffffff));
-                ImGui::SetNextItemWidth(-80);
+                ImGui::SetNextItemWidth(-cw::ui_px(80.0f));
                 changed |= text_input("Title", asset->title);
                 ImGui::TextUnformatted("Description");
                 changed |= text_input("##description", asset->description, true);
-                ImGui::SetNextItemWidth(90);
+                ImGui::SetNextItemWidth(cw::ui_px(90.0f));
                 const std::string points_preview = std::to_string(asset->points);
                 if (ImGui::BeginCombo("Points", points_preview.c_str())) {
                     for (const auto points : kPoints) {
@@ -1005,7 +1013,7 @@ struct AchievementEditorWindow::Impl {
                     }
                     ImGui::EndCombo();
                 }
-                ImGui::SetNextItemWidth(180);
+                ImGui::SetNextItemWidth(cw::ui_px(180.0f));
                 std::string_view type = asset->type;
                 ImGui::TextUnformatted("Achievement type");
                 if (combo("##achievement_type", type, kAchievementTypes)) {
@@ -1077,9 +1085,11 @@ void AchievementEditorWindow::draw(const std::filesystem::path& suggested_file,
         const ImVec2 maximum(std::max(1.0f, viewport->WorkSize.x - 2 * padding.x),
                              std::max(1.0f, viewport->WorkSize.y - 2 * padding.y));
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(380.0f, maximum.x), std::min(260.0f, maximum.y)), maximum);
-        ImGui::SetNextWindowSize(ImVec2(std::min(1100.0f, maximum.x), std::min(780.0f, maximum.y)),
-                                 ImGuiCond_FirstUseEver);
+            ImVec2(std::min(cw::ui_px(380.0f), maximum.x), std::min(cw::ui_px(260.0f), maximum.y)),
+            maximum);
+        ImGui::SetNextWindowSize(
+            ImVec2(std::min(cw::ui_px(1100.0f), maximum.x), std::min(cw::ui_px(780.0f), maximum.y)),
+            ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Achievement Editor", &open)) {
             if (!ImGui::IsWindowDocked()) {
                 const auto pos = ImGui::GetWindowPos();

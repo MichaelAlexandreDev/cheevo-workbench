@@ -1,4 +1,5 @@
 #include "authoring_window.hpp"
+#include "ui_scale.hpp"
 
 #include "cw/devtools/leaderboard_editor.hpp"
 #include "cw/devtools/logic_tester.hpp"
@@ -86,7 +87,8 @@ void clamp_active_window(const ImGuiViewport& viewport) {
 void prepare_window(const ImGuiViewport& viewport, ImVec2 offset, ImVec2 desired_size) {
     const ImVec2 maximum(std::max(1.0f, viewport.WorkSize.x - 12.0f),
                          std::max(1.0f, viewport.WorkSize.y - 12.0f));
-    const ImVec2 minimum(std::min(340.0f, maximum.x), std::min(240.0f, maximum.y));
+    const ImVec2 minimum(std::min(cw::ui_px(340.0f), maximum.x),
+                         std::min(cw::ui_px(240.0f), maximum.y));
     desired_size.x = std::clamp(desired_size.x, minimum.x, maximum.x);
     desired_size.y = std::clamp(desired_size.y, minimum.y, maximum.y);
     ImGui::SetNextWindowSizeConstraints(minimum, maximum);
@@ -426,7 +428,8 @@ struct AuthoringWindow::Impl {
         if (!open)
             return;
         const auto* viewport = ImGui::GetMainViewport();
-        prepare_window(*viewport, ImVec2(28.0f, 32.0f), ImVec2(680.0f, 720.0f));
+        prepare_window(*viewport, ImVec2(28.0f, 32.0f),
+                       ImVec2(cw::ui_px(680.0f), cw::ui_px(720.0f)));
         if (ImGui::Begin("Rich Presence authoring", &open)) {
             if (!ImGui::IsWindowDocked())
                 clamp_active_window(*viewport);
@@ -676,7 +679,7 @@ struct AuthoringWindow::Impl {
                 disabled_wrapped("This test is no longer present in the shared runtime.");
             }
 
-            if (ImGui::BeginChild("##leaderboard_events", ImVec2(0.0f, 130.0f),
+            if (ImGui::BeginChild("##leaderboard_events", ImVec2(0.0f, cw::ui_px(130.0f)),
                                   ImGuiChildFlags_Borders)) {
                 if (leaderboard_test.events.empty())
                     disabled_wrapped("No events for this leaderboard yet.");
@@ -724,7 +727,8 @@ struct AuthoringWindow::Impl {
         if (!open)
             return;
         const auto* viewport = ImGui::GetMainViewport();
-        prepare_window(*viewport, ImVec2(64.0f, 64.0f), ImVec2(740.0f, 840.0f));
+        prepare_window(*viewport, ImVec2(64.0f, 64.0f),
+                       ImVec2(cw::ui_px(740.0f), cw::ui_px(840.0f)));
         if (ImGui::Begin("Leaderboard authoring", &open)) {
             if (!ImGui::IsWindowDocked())
                 clamp_active_window(*viewport);
@@ -896,9 +900,11 @@ struct AuthoringWindow::Impl {
         const ImVec2 maximum(std::max(1.0f, viewport->WorkSize.x - 20.0f),
                              std::max(1.0f, viewport->WorkSize.y - 20.0f));
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(340.0f, maximum.x), std::min(180.0f, maximum.y)), maximum);
-        ImGui::SetNextWindowSize(ImVec2(std::min(500.0f, maximum.x), std::min(240.0f, maximum.y)),
-                                 ImGuiCond_Appearing);
+            ImVec2(std::min(cw::ui_px(340.0f), maximum.x), std::min(cw::ui_px(180.0f), maximum.y)),
+            maximum);
+        ImGui::SetNextWindowSize(
+            ImVec2(std::min(cw::ui_px(500.0f), maximum.x), std::min(cw::ui_px(240.0f), maximum.y)),
+            ImGuiCond_Appearing);
         if (!ImGui::BeginPopupModal("Unsaved authoring changes", nullptr))
             return;
 
