@@ -13,7 +13,8 @@ with the official Windows toolkit (RALibretro + RAIntegration). The step-by-step
 **Status:** 2.1–2.5, 3.1–3.3 and 5.2 done and manually validated;
 4.1–4.4 and 5.1 implemented and unit-tested;
 4.3–4.4 and 5.1 approved for merge after partial manual testing (latest notes layout fix awaits
-manual confirmation); 6.1–6.2 implemented and unit-tested, awaiting manual UI validation;
+manual confirmation); 6.1–6.2 validated on screen; achievements, Rich Presence, a leaderboard's
+data and bookmarks checked against RAIntegration 1.4.2;
 2.6 implemented after algorithm approval (issue #35), awaiting manual UI validation;
 Japanese UI font fallback implemented (issue #40), with headless glyph tests;
 interface font and layout settings implemented and tested on screen

@@ -1110,3 +1110,43 @@ coloca de volta dentro da tela. Você testou tudo na tela em 2026-11-03.
 2. O que aconteceria se a escala partisse do estilo já escalado?
 3. Por que uma nova largura fixa no código deve usar `cw::ui_px()`?
 4. Exercício: procure uma largura fixa em `main.cpp` e calcule o valor dela com fonte 26.
+
+## Divisão do main.cpp
+
+### O que foi feito
+
+O `main.cpp` caiu de 3.351 para 574 linhas. Cada janela e cada responsabilidade ganhou o próprio
+arquivo, e ele ficou só com a abertura do programa e o loop principal. O programa continua fazendo
+o mesmo, tirando as correções de layout feitas em commits separados.
+
+### Conceitos
+
+- **Refatorar:** reorganizar o código sem mudar o que ele faz.
+- **Testes de caracterização:** registram o comportamento atual antes da mudança. Se algo mudar sem
+  querer, eles falham.
+- **Mover sem melhorar:** misturar mudança de lugar e melhoria impede saber a causa de um bug novo.
+- **Teste de mutação:** quebrar o código de propósito para provar que o teste percebe.
+
+### Arquivos para ler
+
+1. `src/frontend/main.cpp`: a abertura do programa e o loop de cada frame.
+2. `tests/test_main_windows.cpp`: como os testes clicam nos botões reais das janelas.
+3. `src/frontend/app_state.hpp`: o estado geral que as partes compartilham.
+4. `src/frontend/ui_widgets.hpp`: as peças usadas por várias janelas.
+5. Um arquivo `*_window.cpp`, para ver o formato de uma janela.
+
+### Problemas encontrados
+
+- **Controles fora da janela:** a Memory Search e o Memory Viewer tinham seletores sem largura, e o
+  Achievement Tester perdia o botão **Remove** em janela estreita.
+- **Nota empurrada para fora:** no Memory Viewer, o texto e a altura fixa de **My note** criavam a
+  rolagem. Você apontou a causa, e eu errei o diagnóstico até medir o painel certo.
+- **Teste que não provava nada:** o primeiro teste da rolagem media a lista interna em vez do painel
+  e passava mesmo com o bug. Por isso, todo teste novo deve falhar antes da correção.
+
+### Para fixar
+
+1. Por que escrever os testes antes de mover o código?
+2. Por que a mudança de lugar e a correção de bug ficam em commits separados?
+3. O que os testes de janela não conseguem ver e ainda exige teste na tela?
+4. Exercício: quebre uma linha de `watch_list_window.cpp`, veja qual teste falha e desfaça.

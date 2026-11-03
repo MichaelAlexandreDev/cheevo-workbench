@@ -120,4 +120,7 @@ split into 7a (read-only: login, hash → game ID, fetch assets/notes) and 7b (w
   uploads them with the assets instead of the user copying them by hand (after 4.2, reusing its
   line-preserving writer).
 - Core options UI and persisted option values.
+- Split `src/frontend/main.cpp` into one file per window and responsibility, with characterization
+  tests in `tests/test_main_windows.cpp` (implemented on 2026-11-03).
+
 - Packaging: AUR `-git` package, AppImage, CI (after milestone 2); license choice before release.

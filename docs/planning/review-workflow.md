@@ -33,8 +33,7 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
      extend it to leaderboards, Rich Presence, code notes and bookmarks.
   2. CI (build, tests, ASan/UBSan) using the synthetic core. LeakSanitizer needs a suppression for
      a small fixed leak inside fontconfig's XML parser.
-  3. Split `src/frontend/main.cpp` one window per PR, with no behavior change.
-  4. Choose a license before the repository is ever made public.
+  3. Choose a license before the repository is ever made public.
 - The user has low vision, so UI size and legibility are requirements. New fixed measurements must
   use `cw::ui_px()` so they follow the user's font size.
 - The official tools for this check live outside the repository in
@@ -126,8 +125,8 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
 - Writes to user files: unique tmp + atomic rename; never overwrite a file that failed to parse.
 - Verify performance claims by measuring; report modest gains honestly.
 - `tests/test_main_windows.cpp` compiles `main.cpp` into the test with `main()` renamed and presses
-  real widgets through ImGui's test engine hooks. When a window moves out of `main.cpp`, update only
-  the harness, never the expectations. Those hooks do not report tabs, closed combo boxes or
+  real widgets through ImGui's test engine hooks. When moving code, update only the harness, never
+  the expectations. Those hooks do not report tabs, closed combo boxes or
   clipped widgets, so a control missing from a list may simply be off-screen.
 - `GetContentRegionAvail()` inside a scrolling table returns the table's inner width, not the visible
   width. Measure before `BeginTable`. A helper's unit test does not prove the window uses it right.
