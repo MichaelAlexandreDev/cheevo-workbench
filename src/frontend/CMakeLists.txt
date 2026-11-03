@@ -28,6 +28,7 @@ add_executable(cheevo-workbench
     game_view.cpp
     logic_tester_window.cpp
     main.cpp
+    status_window.cpp
     content_dialogs.cpp
     gamepad_input.cpp
     app_state.cpp
