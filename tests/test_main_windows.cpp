@@ -138,6 +138,8 @@ struct WindowsHarness {
         draw_code_notes_window(code_notes, code_notes_ui, dir.path(), memory_viewer, core.memory());
         draw_achievement_tester(logic_tester, tester_ui, core, notice);
         draw_status_window(core, ui, audio_output, 0.0, frame_pacer, joypad_state, gamepads);
+        draw_game_identity(ui, game_ids, notice);
+        handle_dialog_results(ui, dialog_queue(), notice, core, game_view, recent);
         achievement_editor.sync_live(ui.game_session_generation, core.is_game_loaded(),
                                      core.memory());
         achievement_editor.draw(dir.path() / "18238-User.txt", "Synthetic game");
@@ -629,4 +631,139 @@ TEST_CASE("Achievement Tester keeps its row buttons inside the window with a lar
 
     app.click("Achievement Tester", "Remove");
     CHECK_FALSE(app.has("Achievement Tester", "Remove"));
+}
+
+TEST_CASE("The File, Emulation and States menus keep their items") {
+    WindowsHarness app;
+    app.click("##MainMenuBar", "File");
+    for (const char* item :
+         {"System (BIOS) Directory...", "Open Core...", "Open Game...", "Close Content", "Quit"})
+        CHECK_MESSAGE(app.has("File###Menu_00", item), item);
+
+    // Clicking an open menu closes it, so each one is closed before opening the next.
+    app.click("##MainMenuBar", "File");
+    app.click("##MainMenuBar", "Emulation");
+    for (const char* item : {"Pause", "Reset", "Frame Advance"})
+        CHECK_MESSAGE(app.has("Emulation###Menu_00", item), item);
+
+    app.click("##MainMenuBar", "Emulation");
+    app.click("##MainMenuBar", "States");
+    for (const char* item : {"Save", "Load"})
+        CHECK_MESSAGE(app.has("States###Menu_00", item), item);
+}
+
+TEST_CASE("The File menu quits and closes content") {
+    WindowsHarness app;
+    app.click("##MainMenuBar", "File");
+    app.click("File###Menu_00", "Close Content");
+    CHECK_FALSE(app.core.is_game_loaded());
+    CHECK(app.ui.status_message == "Closed content; the core path is remembered");
+    CHECK_FALSE(app.ui.status_is_error);
+    CHECK(app.ui.last_core_path == cw_test::test_core_path());
+
+    CHECK_FALSE(app.ui.quit);
+    app.click("##MainMenuBar", "File");
+    app.click("File###Menu_00", "Quit");
+    CHECK(app.ui.quit);
+}
+
+TEST_CASE("The Emulation menu pauses and resets") {
+    WindowsHarness app;
+    app.click("##MainMenuBar", "Emulation");
+    app.click("Emulation###Menu_00", "Pause");
+    CHECK(app.ui.session.paused());
+
+    app.click("##MainMenuBar", "Emulation");
+    CHECK(app.has("Emulation###Menu_00", "Resume"));
+    const uint64_t history = app.ui.memory_history_generation;
+    app.click("Emulation###Menu_00", "Reset");
+    CHECK(app.ui.memory_history_generation == history + 1);
+}
+
+TEST_CASE("Content can be opened from a recent entry and is remembered") {
+    WindowsHarness app;
+    app.click("##MainMenuBar", "File");
+    app.click("File###Menu_00", "Close Content");
+    REQUIRE_FALSE(app.core.is_game_loaded());
+
+    const uint64_t session = app.ui.game_session_generation;
+    open_recent(app.ui, app.notice, app.core, app.game_view, app.recent,
+                {cw_test::test_core_path(), app.content.path()});
+    CHECK(app.core.is_game_loaded());
+    CHECK_FALSE(app.ui.status_is_error);
+    CHECK(app.ui.game_session_generation == session + 1);
+    REQUIRE(app.recent.entries().size() == 1);
+    CHECK(app.recent.entries()[0].game == app.content.path());
+    CHECK(std::filesystem::exists(app.recent.file_path()));
+
+    open_recent(app.ui, app.notice, app.core, app.game_view, app.recent,
+                {app.dir.path() / "missing-core.so", app.content.path()});
+    CHECK(app.ui.status_is_error);
+}
+
+TEST_CASE("Finished file dialogs open content or report errors") {
+    WindowsHarness app;
+    const auto finish = [&](DialogKind kind, std::string path, std::string error) {
+        {
+            std::lock_guard lock(dialog_queue().mutex);
+            dialog_queue().results.push_back({kind, std::move(path), std::move(error)});
+        }
+        app.ui.dialog_pending = true;
+        app.frame();
+    };
+
+    finish(DialogKind::OpenCore, "", "Dialog failed");
+    CHECK(app.ui.status_message == "Dialog failed");
+    CHECK(app.ui.status_is_error);
+    CHECK_FALSE(app.ui.dialog_pending);
+
+    finish(DialogKind::SystemDirectory, "/some/bios", "");
+    CHECK(app.ui.system_directory_open);
+    CHECK(app.ui.system_directory_input == "/some/bios");
+
+    finish(DialogKind::OpenGame, app.content.path().string(), "");
+    CHECK(app.core.is_game_loaded());
+    CHECK_FALSE(app.ui.status_is_error);
+    CHECK(app.recent.entries().size() == 1);
+}
+
+TEST_CASE("Game identity reports unknown consoles and saves game IDs per hash") {
+    WindowsHarness app;
+    update_game_identity(app.ui, app.core, app.game_ids);
+    CHECK(app.ui.identified_game_path == app.core.game_path());
+    CHECK(app.ui.game_hash.empty());
+    CHECK(app.ui.game_hash_error == "Unknown console for this core: no RetroAchievements hash");
+    CHECK_FALSE(app.ui.game_id);
+    app.frame();
+    CHECK_FALSE(app.has("Status", "Save game ID"));
+
+    const std::string hash(32, 'a');
+    app.ui.game_hash = hash;
+    app.ui.game_hash_error.clear();
+    app.frame();
+    app.frame();
+    REQUIRE(app.has("Status", "Save game ID"));
+    CHECK(app.has("Status", "Copy"));
+
+    set_text(app.ui.game_id_input, "18238");
+    app.click("Status", "Save game ID");
+    CHECK(app.ui.game_id == 18238U);
+    CHECK(app.game_ids.find(hash) == 18238U);
+    CHECK(app.notice.text == "Game ID saved");
+
+    set_text(app.ui.game_id_input, "99999999999");
+    app.click("Status", "Save game ID");
+    CHECK(app.notice.text == "Game ID too large");
+    CHECK(app.ui.game_id == 18238U);
+
+    set_text(app.ui.game_id_input, "0");
+    app.click("Status", "Save game ID");
+    CHECK_FALSE(app.ui.game_id);
+    CHECK_FALSE(app.game_ids.find(hash));
+    CHECK(app.notice.text == "Game ID cleared");
+}
+
+TEST_CASE("Game file filters follow the core's extensions") {
+    CHECK(game_filter_pattern("bin|cue") == "bin;cue");
+    CHECK(game_filter_pattern("") == "*");
 }
