@@ -97,11 +97,19 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
    implementer's review on the PR, label it as such.
 7. **User test.** Give the user a short numbered route in PT-BR, and ask only for the steps
    that failed. Fix what they find.
-8. **Merge only after the user's explicit approval**, squash: `gh pr merge <PR> --squash`.
-   Stacked PRs: after the lower one merges, **merge `main` into the upper branch** (no rebase,
-   no force push), resolve conflicts with the branch's version, check
-   `git diff <tested tip> HEAD` is empty, push, `gh pr edit <PR> --base main`, merge. Then
-   `git switch main && git pull --ff-only`, rebuild and run the tests.
+8. **Merge only after the user's explicit approval**, keeping every commit separate. Never
+   squash: `gh pr merge <PR> --rebase`. Work on one task at a time and do not stack PRs, because
+   a rebase merge gives the commits new hashes and breaks any branch built on top of them. Then
+   finish the task's flow, so that `main` is the only branch left:
+
+   ```sh
+   git switch main && git pull --ff-only
+   git branch -D <branch>
+   git push origin --delete <branch>
+   ```
+
+   Rebuild and run the tests. Confirm that the PR shows as merged and that its issue closed
+   (`Closes #<N>` in the PR body); close the issue by hand if it did not.
 9. **Docs after each step:** study section (format in `docs/study/README.md`), roadmap status,
    `AGENTS.md` status line; when a whole milestone is done, its "Resumo da etapa".
 
@@ -111,8 +119,9 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
   fine.
 - No ROMs, BIOS, game data in the repo, tests or fixtures; tests use synthetic buffers.
 - Never copy code from `reference/RALibretro` (GPL). Read, then write our own.
-- Don't commit or push unless the user asked for this workflow (they have, for step branches);
-  never merge without their approval.
+- Don't commit or push unless the user asked for this workflow (they have, for every task: commit,
+  push, PR, merge, delete the local and remote branch, close the PR and issue); never merge without
+  their approval.
 
 ## Lessons so far (check for these in reviews)
 
