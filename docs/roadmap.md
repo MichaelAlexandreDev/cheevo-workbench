@@ -80,8 +80,9 @@ RAIntegration for upload.
 > RAIntegration with matching data, and it evaluated and triggered one locally. RAIntegration saved
 > a title edit; this tool then opened that file and showed the edit, and its parser and writer
 > reproduced the file byte for byte. RAIntegration assigns local IDs to our `0` IDs and rewrites
-> the version and title lines and the line endings. Not yet covered: leaderboards, Rich Presence,
-> code notes and bookmarks.
+> the version and title lines and the line endings. The same day, RAIntegration also showed our Rich
+> Presence script in its monitor, listed our test leaderboard with matching data (not activated),
+> and showed our exported bookmarks. Code notes stay local by design, and were checked in this tool.
 
 ## Milestone 5 — Notes in the editor + bookmarks
 
@@ -94,8 +95,8 @@ RAIntegration for upload.
 
 | Step | Scope | Depends on | Status |
 |---|---|---|---|
-| 6.1 | Rich Presence editor + live preview, `RACache/Data/<GameID>-Rich.txt` | 3.2 | 🟡 — implemented; awaiting manual UI validation |
-| 6.2 | Leaderboards (start/cancel/submit/value) with live testing, stored in `-User.txt` | 4.2, 3.2 | 🟡 — implemented; awaiting manual UI validation |
+| 6.1 | Rich Presence editor + live preview, `RACache/Data/<GameID>-Rich.txt` | 3.2 | ✅ — validated on screen on 2026-11-03 |
+| 6.2 | Leaderboards (start/cancel/submit/value) with live testing, stored in `-User.txt` | 4.2, 3.2 | ✅ — validated on screen on 2026-11-03 |
 
 ## Milestone 7 — Server integration 🔒
 

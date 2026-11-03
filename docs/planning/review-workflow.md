@@ -125,6 +125,12 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
   does not undo it (see `LogicTester::reset`). Callbacks without user data use `thread_local`.
 - Writes to user files: unique tmp + atomic rename; never overwrite a file that failed to parse.
 - Verify performance claims by measuring; report modest gains honestly.
+- `tests/test_main_windows.cpp` compiles `main.cpp` into the test with `main()` renamed and presses
+  real widgets through ImGui's test engine hooks. When a window moves out of `main.cpp`, update only
+  the harness, never the expectations. Those hooks do not report tabs, closed combo boxes or
+  clipped widgets, so a control missing from a list may simply be off-screen.
+- `GetContentRegionAvail()` inside a scrolling table returns the table's inner width, not the visible
+  width. Measure before `BeginTable`. A helper's unit test does not prove the window uses it right.
 - ImGui's `ClearFonts()` writes its previous font size back into the style: set the new size after
   calling it. Do not unload fontconfig between queries, because it would leak and rebuild its
   configuration each time.

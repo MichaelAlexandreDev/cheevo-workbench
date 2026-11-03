@@ -733,6 +733,8 @@ struct AchievementEditorWindow::Impl {
             // Fixed minimum content widths keep all controls reachable on narrow windows.
             const float height = std::max(ImGui::GetTextLineHeightWithSpacing() * 5,
                                           ImGui::GetContentRegionAvail().y - 100);
+            // Measured before BeginTable: inside the table this reports its scrolling inner width.
+            const float visible_width = ImGui::GetContentRegionAvail().x;
             if (ImGui::BeginTable("conditions", 12, table_flags, ImVec2(0, height),
                                   cw::ui_px(1475.0f))) {
                 ImGui::TableSetupColumn("Last result", ImGuiTableColumnFlags_WidthFixed,
@@ -746,7 +748,11 @@ struct AchievementEditorWindow::Impl {
                                             cw::ui_px(std::string_view(name) == "Compare" ? 90.0f
                                                       : std::string_view(name) == "Hits" ? 65.0f
                                                                                          : 125.0f));
-                ImGui::TableSetupScrollFreeze(2, 1);
+                // The live columns only hold data during a test; otherwise they just take up room.
+                ImGui::TableSetupScrollFreeze(
+                    live.active() ? cw::frozen_table_columns(2, cw::ui_px(200.0f), visible_width)
+                                  : 0,
+                    1);
                 ImGui::TableHeadersRow();
                 ImGui::PushID(static_cast<int>(g));
                 ImGuiListClipper clipper;

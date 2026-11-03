@@ -1589,6 +1589,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             selected_range += " (not fully available)";
         }
     }
+    ImGui::SetNextItemWidth(cw::ui_px(220.0f));
     if (ImGui::BeginCombo("Range", selected_range.c_str())) {
         const bool all_selected = state.selected_region == 0;
         if (ImGui::Selectable("All", all_selected)) {
@@ -1620,7 +1621,8 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
     const char* selected_size = state.all_bit_positions
                                     ? "All bits (0–7)"
                                     : kMemoryValueSizes[static_cast<size_t>(state.size)].second;
-    ImGui::SameLine();
+    cw::same_line_if_fits(cw::labeled_item_width(cw::ui_px(110.0f), "Size"));
+    ImGui::SetNextItemWidth(cw::ui_px(110.0f));
     if (ImGui::BeginCombo("Size", selected_size)) {
         const bool all_bits_selected = state.all_bit_positions;
         if (ImGui::Selectable("All bits (0–7)", all_bits_selected)) {
@@ -1642,9 +1644,10 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
         ImGui::EndCombo();
     }
 
-    ImGui::SameLine();
+    cw::same_line_if_fits(cw::labeled_item_width(cw::ui_px(140.0f), "Byte order"));
     const char* order_label =
         state.byte_order == cw::ByteOrder::LittleEndian ? "Little-endian" : "Big-endian";
+    ImGui::SetNextItemWidth(cw::ui_px(140.0f));
     if (ImGui::BeginCombo("Byte order", order_label)) {
         for (const auto& [order, label] : {std::pair{cw::ByteOrder::LittleEndian, "Little-endian"},
                                            std::pair{cw::ByteOrder::BigEndian, "Big-endian"}}) {
@@ -1665,7 +1668,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
     if (!supports_alignment) {
         state.aligned = false;
     }
-    ImGui::SameLine();
+    cw::same_line_if_fits(ImGui::GetFrameHeight() + cw::labeled_item_width(0.0f, "Aligned"));
     ImGui::BeginDisabled(!supports_alignment);
     ImGui::Checkbox("Aligned", &state.aligned);
     ImGui::EndDisabled();
@@ -1705,7 +1708,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             state.message_is_error = true;
         }
     }
-    ImGui::SameLine();
+    cw::same_line_if_fits(cw::labeled_item_width(cw::ui_px(70.0f), "Compare"));
     const char* comparison_label = "!=";
     for (const auto& [comparison, label] : kSearchComparisons) {
         if (comparison == state.comparison) {
@@ -1713,6 +1716,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             break;
         }
     }
+    ImGui::SetNextItemWidth(cw::ui_px(70.0f));
     if (ImGui::BeginCombo("Compare", comparison_label)) {
         for (const auto& [comparison, label] : kSearchComparisons) {
             const bool selected = state.comparison == comparison;
@@ -1725,7 +1729,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
+    cw::same_line_if_fits(cw::labeled_item_width(cw::ui_px(150.0f), "Compare with"));
     const char* reference_label = "Previous snapshot";
     for (const auto& [reference, label] : kSearchReferences) {
         if (reference == state.reference) {
@@ -1733,6 +1737,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             break;
         }
     }
+    ImGui::SetNextItemWidth(cw::ui_px(150.0f));
     if (ImGui::BeginCombo("Compare with", reference_label)) {
         for (const auto& [reference, label] : kSearchReferences) {
             const bool selected = state.reference == reference;
@@ -1746,14 +1751,15 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
         ImGui::EndCombo();
     }
     if (state.reference == cw::MemorySearchReference::Constant) {
-        ImGui::SameLine();
+        cw::same_line_if_fits(cw::labeled_item_width(cw::ui_px(100.0f), "Value (hex)"));
         ImGui::SetNextItemWidth(cw::ui_px(100.0f));
         ImGui::InputText("Value (hex)", state.constant_input, sizeof(state.constant_input),
                          ImGuiInputTextFlags_CharsHexadecimal);
     }
 
     const bool has_search = state.search.active();
-    ImGui::SameLine();
+    cw::same_line_if_fits(ImGui::CalcTextSize("Filter").x +
+                          ImGui::GetStyle().FramePadding.x * 2.0f);
     ImGui::BeginDisabled(!has_search);
     if (ImGui::Button("Filter")) {
         uint32_t constant = 0;
@@ -1775,7 +1781,7 @@ void draw_memory_search(const UiState& ui, cw::LibretroCore& core, MemorySearchS
             }
         }
     }
-    ImGui::SameLine();
+    cw::same_line_if_fits(ImGui::CalcTextSize("Undo").x + ImGui::GetStyle().FramePadding.x * 2.0f);
     ImGui::BeginDisabled(!has_search || state.search.undo_count() == 0);
     if (ImGui::Button("Undo")) {
         if (state.search.undo()) {

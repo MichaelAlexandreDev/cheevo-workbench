@@ -55,6 +55,41 @@ target_include_directories(cw_ui_tests PRIVATE ../src/frontend)
 target_link_libraries(cw_ui_tests PRIVATE cw_devtools imgui doctest cw_warnings ${CMAKE_DL_LIBS})
 add_test(NAME cw_ui_tests COMMAND cw_ui_tests)
 
+# Characterization tests for the windows inside src/frontend/main.cpp. They compile that file into
+# the test (with its main() renamed) and press the real widgets through ImGui's test engine hooks,
+# so a dedicated ImGui build is needed: the hooks must not reach the shipped application.
+add_library(imgui_test_hooks STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
+target_include_directories(imgui_test_hooks SYSTEM PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+target_compile_definitions(imgui_test_hooks PUBLIC IMGUI_ENABLE_TEST_ENGINE)
+target_link_libraries(imgui_test_hooks PUBLIC SDL3::SDL3)
+
+add_executable(cw_window_tests
+    test_main.cpp
+    test_main_windows.cpp
+    ../src/frontend/achievement_editor_window.cpp
+    ../src/frontend/assisted_search_window.cpp
+    ../src/frontend/authoring_window.cpp
+    ../src/frontend/game_view.cpp
+    ../src/frontend/ui_appearance.cpp
+    ../src/frontend/ui_fonts.cpp
+    ../src/frontend/ui_settings.cpp)
+target_include_directories(cw_window_tests PRIVATE ../src/frontend)
+target_compile_definitions(cw_window_tests PRIVATE
+    CW_VERSION="${PROJECT_VERSION}"
+    CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>")
+target_link_libraries(cw_window_tests PRIVATE
+    cw_devtools cw_frontend imgui_test_hooks libretro_api doctest SDL3::SDL3 OpenGL::GL cw_warnings
+    ${CMAKE_DL_LIBS})
+add_dependencies(cw_window_tests cw_test_core)
+add_test(NAME cw_window_tests COMMAND cw_window_tests)
+
 # Run explicitly in a Release build; timings are informational, never a CI threshold.
 add_executable(cw_assisted_search_benchmark EXCLUDE_FROM_ALL benchmark_assisted_search.cpp)
 target_link_libraries(cw_assisted_search_benchmark PRIVATE cw_devtools cw_warnings)

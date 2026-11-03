@@ -265,3 +265,10 @@ TEST_CASE("Reset layout undocks windows and keeps them inside the viewport") {
     // The dock host is not a tool window: resetting must leave it covering the viewport.
     CHECK(ImGui::DockBuilderGetCentralNode(dockspace) != nullptr);
 }
+
+TEST_CASE("Tables freeze their leading columns only when enough width remains") {
+    CHECK(cw::frozen_table_columns(2, 200.0f, 1000.0f) == 2);
+    CHECK(cw::frozen_table_columns(2, 400.0f, 1000.0f) == 2); // exactly the allowed share
+    CHECK(cw::frozen_table_columns(2, 401.0f, 1000.0f) == 0);
+    CHECK(cw::frozen_table_columns(2, 370.0f, 600.0f) == 0); // large font in a narrow window
+}
