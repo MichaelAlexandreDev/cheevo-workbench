@@ -82,7 +82,8 @@ add_executable(cw_window_tests
     ../src/frontend/ui_appearance.cpp
     ../src/frontend/ui_fonts.cpp
     ../src/frontend/ui_settings.cpp
-    ../src/frontend/ui_widgets.cpp)
+    ../src/frontend/ui_widgets.cpp
+    ../src/frontend/watch_list_window.cpp)
 target_include_directories(cw_window_tests PRIVATE ../src/frontend)
 target_compile_definitions(cw_window_tests PRIVATE
     CW_VERSION="${PROJECT_VERSION}"
