@@ -172,3 +172,87 @@ TEST_CASE("Invalid authoring draft disables save and survives game session chang
     CHECK_FALSE(ImGui::FindWindowByName("Unsaved authoring changes")->Active);
     CHECK_FALSE(window.take_quit_request());
 }
+
+TEST_CASE("Rich Presence Open / Create button loads a new file and says so") {
+    TemporaryDirectory directory;
+    REQUIRE_FALSE(directory.path.empty());
+    const auto file = directory.path / "18238-Rich.txt";
+    cw::LogicTester tester;
+    cw::AuthoringWindow window(tester);
+    window.rich_presence_open = true;
+    HeadlessUI ui;
+
+    const auto draw = [&] {
+        ImGui::NewFrame();
+        window.draw(file, {});
+        ImGui::Render();
+    };
+    draw();
+    draw();
+    ImGuiWindow* imgui_window = ImGui::FindWindowByName("Rich Presence authoring");
+    REQUIRE(imgui_window != nullptr);
+    const ImGuiID button = imgui_window->GetID("Open / Create");
+
+    // Find the real button by hovering over the window, as a pointer would.
+    ImVec2 position(-1.0f, -1.0f);
+    auto& io = ImGui::GetIO();
+    for (float y = imgui_window->Pos.y; y < imgui_window->Pos.y + imgui_window->Size.y; y += 4.0f) {
+        io.MousePos = ImVec2(imgui_window->Pos.x + 24.0f, y);
+        draw();
+        draw();
+        if (ImGui::GetCurrentContext()->HoveredIdPreviousFrame == button) {
+            position = io.MousePos;
+            break;
+        }
+    }
+    REQUIRE(position.x >= 0.0f);
+
+    io.MouseDown[0] = true;
+    draw();
+    io.MouseDown[0] = false;
+    draw();
+    draw();
+    CHECK(window.presence_session().loaded());
+    CHECK(window.presence_session().path() == file);
+    CHECK(window.presence_session().new_file());
+    CHECK(window.presence_status().find("click Save") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(file)); // nothing is written until the user saves
+
+    // Opening a file that already exists reports that instead.
+    std::ofstream(directory.path / "existing-Rich.txt") << "Display:\nHello\n";
+    std::string error;
+    REQUIRE(window.presence_session().load(directory.path / "existing-Rich.txt", error));
+    CHECK_FALSE(window.presence_session().new_file());
+}
+
+TEST_CASE("Leaderboard list rows span the whole window") {
+    TemporaryDirectory directory;
+    REQUIRE_FALSE(directory.path.empty());
+    const auto file = directory.path / "18238-User.txt";
+    std::ofstream(file)
+        << "version\nGame\nL0:\"0=0.2.\":\"0=1\":\"0=0.5.\":\"M:123\":SCORE:Teste LB:Local:0\n";
+    cw::LogicTester tester;
+    cw::AuthoringWindow window(tester);
+    window.leaderboards_open = true;
+    HeadlessUI ui;
+    std::string error;
+    REQUIRE(window.leaderboard_session().load(file, error));
+    ui.frame(window);
+    ui.frame(window);
+
+    ImGuiWindow* imgui_window = ImGui::FindWindowByName("Leaderboard authoring");
+    REQUIRE(imgui_window != nullptr);
+    const ImGuiID row = imgui_window->GetID("###leaderboard_0_0");
+    auto& io = ImGui::GetIO();
+    bool found = false;
+    // Far from the row's short label, so only a full-width row can be hovered here.
+    const float x = imgui_window->Pos.x + imgui_window->Size.x * 0.75f;
+    for (float y = imgui_window->Pos.y; y < imgui_window->Pos.y + imgui_window->Size.y && !found;
+         y += 4.0f) {
+        io.AddMousePosEvent(x, y);
+        ui.frame(window);
+        ui.frame(window);
+        found = ImGui::GetCurrentContext()->HoveredIdPreviousFrame == row;
+    }
+    CHECK(found);
+}

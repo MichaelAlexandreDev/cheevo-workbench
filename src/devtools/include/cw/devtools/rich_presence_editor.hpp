@@ -34,6 +34,8 @@ class RichPresenceEditor {
     bool loaded() const { return loaded_; }
     bool dirty() const { return dirty_; }
     const std::filesystem::path& path() const { return store_.path(); }
+    // True until the first Save creates the file on disk.
+    bool new_file() const { return store_.missing(); }
     const std::string& validation_error() const { return validation_error_; }
     bool can_save() const;
     bool save(std::string& error);

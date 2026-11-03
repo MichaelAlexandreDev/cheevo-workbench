@@ -55,6 +55,15 @@ void disabled_wrapped(const char* message) {
     ImGui::PopStyleColor();
 }
 
+// Sits right below the file buttons: a status at the bottom of a window can be scrolled out of
+// sight, which makes a working button look like it did nothing.
+void draw_status(const std::string& message, bool is_error) {
+    if (is_error)
+        error_text(message);
+    else if (!message.empty())
+        ImGui::TextWrapped("%s", message.c_str());
+}
+
 void button_wrap(const char* next_label) {
     const auto& style = ImGui::GetStyle();
     const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
@@ -218,7 +227,10 @@ struct AuthoringWindow::Impl {
             if (ok) {
                 presence_path_input = presence.path().string();
                 presence_path_initialized = true;
-                report(request.target, true, "Opened local Rich Presence file.");
+                report(request.target, true,
+                       presence.new_file()
+                           ? "New file ready. Write the script and click Save to create it."
+                           : "Opened local Rich Presence file.");
                 reconcile_presence();
             }
         } else {
@@ -226,7 +238,10 @@ struct AuthoringWindow::Impl {
             if (ok) {
                 leaderboard_path_input = leaderboards.path().string();
                 leaderboard_path_initialized = true;
-                report(request.target, true, "Opened local user file.");
+                report(request.target, true,
+                       leaderboards.new_file()
+                           ? "New file ready. Add a leaderboard and click Save to create it."
+                           : "Opened local user file.");
                 reconcile_leaderboard_test();
             }
         }
@@ -465,6 +480,7 @@ struct AuthoringWindow::Impl {
             if (ImGui::Button("Save"))
                 action = Action::Save;
             ImGui::EndDisabled();
+            draw_status(presence_message, presence_message_error);
 
             ImGui::Separator();
             std::string script = presence.text();
@@ -508,13 +524,6 @@ struct AuthoringWindow::Impl {
                 disabled_wrapped("(empty output)");
             if (tester.rich_presence_truncated())
                 ImGui::TextWrapped("The cached output was truncated to fit its runtime buffer.");
-
-            if (!presence_message.empty()) {
-                if (presence_message_error)
-                    error_text(presence_message);
-                else
-                    ImGui::TextWrapped("%s", presence_message.c_str());
-            }
 
             // Execute commands after the path and script widgets have consumed this frame's text.
             switch (action) {
@@ -563,8 +572,7 @@ struct AuthoringWindow::Impl {
                                           (title.empty() ? "(untitled leaderboard)" : title) +
                                           "###leaderboard_" + std::to_string(board->id) + "_" +
                                           std::to_string(index);
-                if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_None,
-                                      ImVec2(-1.0f, 0.0f)))
+                if (ImGui::Selectable(label.c_str(), selected))
                     requested_selection = index;
             }
             if (board_number == 0)
@@ -703,13 +711,6 @@ struct AuthoringWindow::Impl {
             ImGui::EndChild();
         }
 
-        if (!leaderboard_message.empty()) {
-            if (leaderboard_message_error)
-                error_text(leaderboard_message);
-            else
-                ImGui::TextWrapped("%s", leaderboard_message.c_str());
-        }
-
         if (stop_requested) {
             stop_leaderboard_test(true, "Offline leaderboard test stopped.");
         } else if (rearm_requested && id) {
@@ -765,6 +766,7 @@ struct AuthoringWindow::Impl {
             if (ImGui::Button("Save"))
                 action = Action::Save;
             ImGui::EndDisabled();
+            draw_status(leaderboard_message, leaderboard_message_error);
 
             ImGui::Separator();
             bool add_requested = false;
@@ -1023,6 +1025,10 @@ bool AuthoringWindow::take_quit_request() {
 
 RichPresenceEditor& AuthoringWindow::presence_session() {
     return impl_->presence;
+}
+
+const std::string& AuthoringWindow::presence_status() const {
+    return impl_->presence_message;
 }
 
 LeaderboardEditor& AuthoringWindow::leaderboard_session() {

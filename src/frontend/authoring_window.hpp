@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace cw {
@@ -36,6 +37,7 @@ class AuthoringWindow {
     bool allow_quit();
     bool take_quit_request();
     RichPresenceEditor& presence_session();
+    const std::string& presence_status() const;
     LeaderboardEditor& leaderboard_session();
 
   private:

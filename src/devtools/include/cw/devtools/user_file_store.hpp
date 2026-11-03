@@ -19,6 +19,7 @@ class UserFileStore {
     const UserFileDocument& document() const { return document_; }
     const std::filesystem::path& path() const { return text_store_.path(); }
     bool writable() const { return writable_; }
+    bool missing() const { return text_store_.missing(); }
 
   private:
     TextFileStore text_store_;

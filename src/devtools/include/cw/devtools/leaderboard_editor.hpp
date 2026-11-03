@@ -38,6 +38,8 @@ class LeaderboardEditor {
     bool dirty() const { return dirty_; }
     bool can_save() const;
     const std::filesystem::path& path() const { return store_.path(); }
+    // True until the first Save creates the file on disk.
+    bool new_file() const { return store_.missing(); }
     const UserFileDocument& document() const { return document_; }
     std::optional<size_t> selection() const { return selection_; }
     bool select(size_t document_index, std::string& error);
