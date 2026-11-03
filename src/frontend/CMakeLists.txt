@@ -28,6 +28,7 @@ add_executable(cheevo-workbench
     game_view.cpp
     logic_tester_window.cpp
     main.cpp
+    app_state.cpp
     memory_search_window.cpp
     memory_viewer_window.cpp
     ui_appearance.cpp

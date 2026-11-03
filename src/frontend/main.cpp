@@ -2,6 +2,7 @@
 // libretro core given on the command line and runs the Dear ImGui main loop.
 
 #include "achievement_editor_window.hpp"
+#include "app_state.hpp"
 #include "assisted_search_window.hpp"
 #include "authoring_window.hpp"
 #include "code_notes_window.hpp"
@@ -89,10 +90,12 @@ using cw::MemoryViewerState;
 using cw::Notice;
 using cw::parse_hex_value;
 using cw::record_logic_events;
+using cw::report_message;
 using cw::save_directory_setting;
 using cw::set_bookmark_message;
 using cw::show_notice;
 using cw::sync_achievement_tester;
+using cw::UiState;
 using cw::WatchListUiState;
 
 constexpr const char* kUsage =
@@ -212,37 +215,6 @@ void draw_paused_indicator(ImDrawList* draw_list, ImVec2 area_min, ImVec2 area_m
     draw_list->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(0, 0, 0, 190),
                              6.0f);
     draw_list->AddText(ImVec2(pos.x + kPaddingX, pos.y + kPaddingY), IM_COL32_WHITE, "Paused");
-}
-
-struct UiState {
-    bool quit = false;
-    bool show_imgui_demo = false;
-    bool dialog_pending = false;
-    cw::SessionState session;
-    std::filesystem::path last_core_path;
-    std::filesystem::path system_dir;
-    bool system_directory_open = false;
-    std::string system_directory_input;
-    std::string system_directory_error;
-    std::string last_core_extensions;
-    std::string status_message;
-    bool status_is_error = false;
-    uint64_t game_session_generation = 0;
-    uint64_t memory_history_generation = 0; // reset/load breaks passive observation history
-    // Identity of the loaded game: its RetroAchievements hash, computed when the game changes,
-    // and the game ID the user entered for that hash (no server lookup, AGENTS.md rule 1).
-    std::string identified_game_path;
-    std::optional<uint64_t> identified_generation; // game_session_generation it was computed for
-    std::string game_hash;
-    std::string game_hash_error;
-    std::optional<uint32_t> game_id;
-    char game_id_input[16] = "";
-};
-
-void report_message(UiState& ui, Notice& notice, const std::string& text, bool ok) {
-    ui.status_message = text;
-    ui.status_is_error = !ok;
-    show_notice(notice, text, ok);
 }
 
 std::filesystem::path load_directory_setting(const std::filesystem::path& config_dir,
