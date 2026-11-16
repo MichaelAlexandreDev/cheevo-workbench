@@ -66,12 +66,20 @@ test_names() {
     done | sort -u
 }
 
-echo "==> Extracting $base ($(git rev-parse --short "$base_rev"))"
-rm -rf "$dir/base-src"
-mkdir -p "$dir/base-src"
-git archive "$base_rev" | tar -x -C "$dir/base-src"
-rm -rf "$dir/base-src/third_party"
-ln -s "$root/third_party" "$dir/base-src/third_party"
+# git archive stamps every file with the commit time, so ninja cannot see that a different base
+# has different sources (an older commit looks older than the objects already built). The base
+# build is therefore reused only for the same revision and rebuilt from scratch otherwise.
+if [[ "$(cat "$dir/base-rev" 2>/dev/null)" != "$base_rev" ]]; then
+    echo "==> Extracting $base ($(git rev-parse --short "$base_rev"))"
+    rm -rf "$dir/base-src" "$dir/base-build" "$dir/base-rev"
+    mkdir -p "$dir/base-src"
+    git archive "$base_rev" | tar -x -C "$dir/base-src"
+    rm -rf "$dir/base-src/third_party"
+    ln -s "$root/third_party" "$dir/base-src/third_party"
+    echo "$base_rev" >"$dir/base-rev"
+else
+    echo "==> Reusing the build of $base ($(git rev-parse --short "$base_rev"))"
+fi
 
 echo "==> Building $base"
 build "$dir/base-src" "$dir/base-build"
@@ -79,6 +87,7 @@ echo "==> Building this checkout"
 build "$root" "$dir/head-build"
 
 status=0
+compared_bytes=1
 fixtures="$root/tests/fixtures/corpus/input"
 base_corpus="$dir/base-build/tests/cw_format_corpus"
 if [[ ! -x "$base_corpus" ]]; then
@@ -86,6 +95,7 @@ if [[ ! -x "$base_corpus" ]]; then
         fail "$base has no cw_format_corpus; pass --allow-missing-corpus to compare test names only"
     fi
     echo "==> Format corpus: skipped, $base predates it"
+    compared_bytes=0
 else
     echo "==> Format corpus"
     rm -rf "$dir/out"
@@ -109,7 +119,9 @@ if [[ -n "$lost" ]]; then
     status=1
 fi
 
-if [[ "$status" -eq 0 ]]; then
+if [[ "$status" -eq 0 && "$compared_bytes" -eq 1 ]]; then
     echo "==> Same bytes, no test lost"
+elif [[ "$status" -eq 0 ]]; then
+    echo "==> No test lost (bytes not compared)"
 fi
 exit "$status"
