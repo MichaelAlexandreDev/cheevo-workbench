@@ -246,8 +246,8 @@ either ImGui build, **as long as `cw_ui` does not link an ImGui implementation i
 **Recommendation:**
 - Add an `imgui_headers` INTERFACE target.
 - `cw_ui` and `cw_app` (everything in `app` except `main.cpp`) link only those headers.
-- The executable links `imgui`; `cw_window_tests` and `cw_ui_tests` link `imgui_test_hooks` and
-  `imgui`.
+- The executable and `cw_ui_tests` link `imgui`; `cw_window_tests` links `imgui_test_hooks`
+  instead (never both: they define the same symbols).
 
 `cw_window_tests` still `#include`s `main.cpp` (with `main` renamed) until `main()` is split.
 
@@ -394,7 +394,10 @@ the ratchet and the layer test green with no new exception and, from R4 on,
 
 **R7 — `imgui_headers`, `cw_ui`, `cw_app` (CMake only, no file moves).**
 - Also: the corpus links `cw_ui` instead of compiling `ui_settings.cpp`, and adds
-  `system-path.txt` and `ra-cache-path.txt` (moved here from R5).
+  `system-path.txt` and `ra-cache-path.txt` (moved here from R5). Only their writer
+  (`save_directory_setting`) is reachable; the reader (`load_directory_setting`) is in `main.cpp`'s
+  anonymous namespace and joins the corpus in R17.
+- The `layers` test splits `frontend` into `ui` and `app` (D3: `ui` may not include `app` or GL).
 - Proof:
   - standard;
   - no `../src/` left in `tests/CMakeLists.txt`;
@@ -418,6 +421,7 @@ the ratchet and the layer test green with no new exception and, from R4 on,
 
 **R15 `host`, R16 `ui`, R17 `app`.**
 - Same pattern; `cw_frontend` becomes `cw_host`.
+- R17 moves `load_directory_setting` out of `main.cpp` and adds the reader to the corpus.
 - Proof: as in R8–R14, plus a manual route: open game, F1/Shift+F1, P/N, Ctrl+R; each window
   opens with its saved layout (proves `imgui.ini` IDs held).
 

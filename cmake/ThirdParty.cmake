@@ -15,6 +15,15 @@ find_package(OpenGL REQUIRED)
 
 # --- Dear ImGui (docking branch) with the SDL3 + OpenGL 3 backends --------------------------
 set(IMGUI_DIR ${CW_THIRD_PARTY}/imgui)
+
+# The headers alone. cw_ui and cw_app compile against these and never link an ImGui build, so the
+# application links `imgui` and the window tests link `imgui_test_hooks` (tests/CMakeLists.txt)
+# with the same objects. IMGUI_ENABLE_TEST_ENGINE only adds enum bits and hook declarations
+# (imgui_internal.h), so both builds agree on every type (refactor plan, decision D4).
+add_library(imgui_headers INTERFACE)
+target_include_directories(imgui_headers SYSTEM INTERFACE ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+target_link_libraries(imgui_headers INTERFACE SDL3::SDL3)
+
 add_library(imgui STATIC
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_demo.cpp
@@ -23,8 +32,7 @@ add_library(imgui STATIC
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
-target_include_directories(imgui SYSTEM PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
-target_link_libraries(imgui PUBLIC SDL3::SDL3)
+target_link_libraries(imgui PUBLIC imgui_headers)
 
 # --- libretro API header (libretro.h) ---------------------------------------------------------
 add_library(libretro_api INTERFACE)
