@@ -41,6 +41,10 @@ add_dependencies(cw_tests cw_test_core cw_not_a_core)
 
 add_test(NAME cw_tests COMMAND cw_tests)
 
+# Dependency direction between modules (tools/check_layers.cmake): fails on a forbidden #include.
+add_test(NAME layers
+    COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${PROJECT_SOURCE_DIR}/tools/check_layers.cmake)
+
 # Headless ImGui checks do not require a display server or an OpenGL context.
 add_executable(cw_ui_tests
     test_main.cpp
