@@ -104,3 +104,20 @@ add_test(NAME cw_window_tests COMMAND cw_window_tests)
 # Run explicitly in a Release build; timings are informational, never a CI threshold.
 add_executable(cw_assisted_search_benchmark EXCLUDE_FROM_ALL benchmark_assisted_search.cpp)
 target_link_libraries(cw_assisted_search_benchmark PRIVATE cw_devtools cw_warnings)
+
+# Size ratchet (tools/size_ratchet.json): files and functions over the limits may only shrink. The
+# function check runs clang-tidy over every translation unit, so it is labeled slow; skip it in the
+# edit-build-test loop with `ctest -LE slow`.
+add_test(NAME size_ratchet_files
+    COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -DMODE=files
+            -P ${PROJECT_SOURCE_DIR}/tools/size_ratchet.cmake)
+find_program(CW_CLANG_TIDY clang-tidy)
+if(CW_CLANG_TIDY)
+    add_test(NAME size_ratchet_functions
+        COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -DMODE=functions
+                -DBUILD_DIR=${PROJECT_BINARY_DIR} -DCLANG_TIDY=${CW_CLANG_TIDY}
+                -P ${PROJECT_SOURCE_DIR}/tools/size_ratchet.cmake)
+    set_tests_properties(size_ratchet_functions PROPERTIES LABELS slow)
+else()
+    message(STATUS "clang-tidy not found: the function size ratchet is not registered")
+endif()
