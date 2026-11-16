@@ -1,12 +1,15 @@
 // The application's own configuration files: recent-files.txt, game-ids.txt and ui-settings.txt.
 // Each fixture is copied, loaded, saved unchanged, then edited and saved, so both the passthrough
 // path and the path that writes new values are frozen. The paths inside the fixtures are made up.
+// The directory settings (system-path.txt, ra-cache-path.txt) have no fixtures: only their writer
+// is reachable, because the reader is still inside main.cpp.
 
 #include "corpus_support.hpp"
 
 #include "game_ids.hpp"
 #include "recent_files.hpp"
 #include "ui_settings.hpp"
+#include "ui_widgets.hpp"
 
 namespace cw_corpus {
 namespace {
@@ -89,6 +92,45 @@ void ui_settings(const std::filesystem::path& source, const std::filesystem::pat
     }
 }
 
+// Saves `path_text` as `filename` in a fresh configuration directory named after the case. "/" is
+// the only directory every machine has, so it is the one saved path the output can contain.
+void directory_setting(const std::filesystem::path& out, const char* name, const char* filename,
+                       const std::string& path_text, Results& results,
+                       std::string_view previous = {}) {
+    const auto config = out / "app" / "directories" / name;
+    std::filesystem::create_directories(config);
+    if (!previous.empty()) {
+        write_file(config / filename, previous);
+    }
+    std::filesystem::path saved;
+    std::string error;
+    if (cw::save_directory_setting(config, filename, path_text, saved, error)) {
+        results.add("directories", name,
+                    std::string(filename) + " saved, path \"" + saved.string() + "\"");
+    } else {
+        results.add("directories", name, std::string(filename) + " refused: " + error);
+    }
+}
+
+void directory_settings(const std::filesystem::path& out, Results& results) {
+    directory_setting(out, "root", "system-path.txt", "/", results);
+    directory_setting(out, "empty", "ra-cache-path.txt", "", results);
+    directory_setting(out, "overwrite", "system-path.txt", "/", results,
+                      "/a/much/longer/directory/than/the/new/one\n");
+    directory_setting(out, "relative", "system-path.txt", "relative/dir", results);
+    directory_setting(out, "missing", "ra-cache-path.txt", "/no/such/cheevo-workbench/dir",
+                      results);
+    directory_setting(out, "line-break", "system-path.txt", "/\n/", results);
+
+    std::filesystem::path saved;
+    std::string error;
+    if (cw::save_directory_setting({}, "system-path.txt", "/", saved, error)) {
+        results.add("directories", "no-config", "saved without a configuration directory");
+    } else {
+        results.add("directories", "no-config", "refused: " + error);
+    }
+}
+
 } // namespace
 
 void run_app_files(const std::filesystem::path& input, const std::filesystem::path& out,
@@ -102,6 +144,7 @@ void run_app_files(const std::filesystem::path& input, const std::filesystem::pa
     for (const auto& source : files_in(input / "app" / "ui-settings", ".txt")) {
         ui_settings(source, out, results);
     }
+    directory_settings(out, results);
 }
 
 } // namespace cw_corpus

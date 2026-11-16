@@ -56,3 +56,10 @@ game-ids/mixed: invalid hash refused: Not a RetroAchievements hash: not-a-hash
 ui-settings/custom: font_size 18, font_path "/fonts/DejaVuSans.ttf", font_index 0
 ui-settings/no-header: font_size 13, font_path "", font_index 0
 ui-settings/out-of-range: font_size 48, font_path "", font_index 0
+directories/root: system-path.txt saved, path "/"
+directories/empty: ra-cache-path.txt saved, path ""
+directories/overwrite: system-path.txt saved, path "/"
+directories/relative: system-path.txt refused: Enter an absolute directory path, or leave it empty.
+directories/missing: ra-cache-path.txt refused: The selected directory does not exist.
+directories/line-break: system-path.txt refused: The selected directory does not exist.
+directories/no-config: refused: The configuration directory is unavailable; the path cannot be saved.
