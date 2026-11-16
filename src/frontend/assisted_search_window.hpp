@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cw/devtools/assisted_search.hpp"
+#include "cw/memory/assisted_search.hpp"
 
 #include <cstdint>
 #include <optional>

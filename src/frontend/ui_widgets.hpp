@@ -1,7 +1,7 @@
 #pragma once
 
 #include "cw/devtools/code_notes.hpp"
-#include "cw/devtools/memory.hpp"
+#include "cw/memory/memory.hpp"
 
 #include <imgui.h>
 

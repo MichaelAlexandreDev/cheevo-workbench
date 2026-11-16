@@ -1,5 +1,5 @@
 // Standalone release benchmark using synthetic 2 MiB RAM.
-#include "cw/devtools/assisted_search.hpp"
+#include "cw/memory/assisted_search.hpp"
 
 #include <chrono>
 #include <cstdio>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cw/devtools/memory.hpp"
+#include "cw/memory/memory.hpp"
 
 #include <array>
 #include <cstddef>

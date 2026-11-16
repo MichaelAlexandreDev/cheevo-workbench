@@ -6,7 +6,7 @@
 
 #include "assisted_search_window.hpp"
 
-#include "cw/devtools/memory.hpp"
+#include "cw/memory/memory.hpp"
 
 #include <cstdint>
 #include <optional>

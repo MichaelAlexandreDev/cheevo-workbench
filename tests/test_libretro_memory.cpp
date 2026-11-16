@@ -1,7 +1,7 @@
 // The core's memory in RetroAchievements addresses (rc_libretro), driven by the test core.
 
-#include "cw/devtools/memory_search.hpp"
-#include "cw/devtools/watch_list.hpp"
+#include "cw/memory/memory_search.hpp"
+#include "cw/memory/watch_list.hpp"
 #include "libretro_core.hpp"
 #include "libretro_memory.hpp"
 #include "test_support.hpp"
