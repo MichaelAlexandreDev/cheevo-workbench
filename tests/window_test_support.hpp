@@ -98,6 +98,14 @@ class UiDriver {
         frame();
     }
 
+    // Replaces the text of the active input field: selects all of it, then types `text`.
+    void type(const char* text) {
+        key(ImGuiKey_A, ImGuiMod_Ctrl);
+        ImGui::GetIO().AddInputCharactersUTF8(text);
+        frame();
+        frame();
+    }
+
   private:
     std::function<void()> draw_;
 };
