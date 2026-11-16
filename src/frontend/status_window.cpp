@@ -1,6 +1,6 @@
 #include "status_window.hpp"
 
-#include "cw/devtools/game_hash.hpp"
+#include "cw/hash/game_hash.hpp"
 #include "ui_scale.hpp"
 #include <SDL3/SDL.h>
 #include <cstdlib>

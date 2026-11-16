@@ -49,7 +49,7 @@ add_library(cw_app STATIC
     status_window.cpp)
 target_link_libraries(cw_app
     PUBLIC cw_ui cw_frontend imgui_headers SDL3::SDL3 OpenGL::GL
-    PRIVATE cw_warnings)
+    PRIVATE cw_hash cw_warnings)
 target_compile_definitions(cw_app PRIVATE CW_VERSION="${PROJECT_VERSION}")
 
 # The application: SDL3 window, OpenGL rendering and Dear ImGui UI.

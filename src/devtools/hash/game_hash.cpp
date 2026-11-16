@@ -1,4 +1,4 @@
-#include "cw/devtools/game_hash.hpp"
+#include "cw/hash/game_hash.hpp"
 
 #include "cw/io/file_checks.hpp"
 
