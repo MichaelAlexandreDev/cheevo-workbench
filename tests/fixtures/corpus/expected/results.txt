@@ -44,3 +44,15 @@ state/unknown-version: rejected: Unsupported RASTATE version 2
 state/truncated-block: rejected: Truncated block header
 state/no-mem-block: rejected: The state file has no core data (MEM block)
 state/no-end-block: rejected: Truncated state file (no END block)
+recent/three-entries: entry /usr/lib/libretro/synthetic_libretro.so | /games/Synthetic Game (Japan).cue
+recent/three-entries: entry /cores/core-only_libretro.so | (no game)
+recent/three-entries: entry /cores/tab	and newline\ncore.so | /games/ゲーム.chd
+recent/three-entries: saved
+recent/wrong-header: saved
+game-ids/mixed: 0123456789abcdef0123456789abcdef -> 18238
+game-ids/mixed: fedcba9876543210fedcba9876543210 -> unknown
+game-ids/mixed: 00000000000000000000000000000000 -> unknown
+game-ids/mixed: invalid hash refused: Not a RetroAchievements hash: not-a-hash
+ui-settings/custom: font_size 18, font_path "/fonts/DejaVuSans.ttf", font_index 0
+ui-settings/no-header: font_size 13, font_path "", font_index 0
+ui-settings/out-of-range: font_size 48, font_path "", font_index 0

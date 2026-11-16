@@ -109,6 +109,7 @@ bool run(const std::filesystem::path& input, const std::filesystem::path& out, s
         run_bookmarks(absolute_in, absolute_out, results);
         run_code_notes(absolute_in, absolute_out, results);
         run_save_states(absolute_out, results);
+        run_app_files(absolute_in, absolute_out, results);
         write_file(absolute_out / "results.txt", results.text());
         return true;
     } catch (const std::exception& exception) {

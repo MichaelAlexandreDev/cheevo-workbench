@@ -9,6 +9,8 @@
 //   rich/<case>.txt         RACache Data/<id>-Rich.txt files
 //   bookmarks/<case>.json   RACache Bookmarks/<id>-Bookmarks.json files
 //   notes/<case>/data/...   our notes/<id>.json, and racache/Data/<id>-Notes.json
+//   app/recent/<case>.txt, app/game-ids/<case>.txt, app/ui-settings/<case>.txt
+//                           the application's own configuration files
 // RASTATE save states are generated in code (state files must not be committed).
 //
 // Everything is written under `out`, plus `out/results.txt` with one line per observation.

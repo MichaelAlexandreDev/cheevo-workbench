@@ -1,0 +1,4 @@
+# cheevo-workbench ui settings v1
+font_size	21
+font_path	/fonts/Noto Sans CJK JP.ttc
+font_index	2

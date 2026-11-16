@@ -1,0 +1,4 @@
+# cheevo-workbench ui settings v1
+font_size	13
+font_path	
+font_index	0

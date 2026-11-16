@@ -64,12 +64,15 @@ add_test(NAME cw_ui_tests COMMAND cw_ui_tests)
 # tools/compare-with-main.sh runs cw_format_corpus from two builds and compares their outputs.
 add_library(cw_format_corpus_lib STATIC
     format_corpus/corpus.cpp
+    format_corpus/corpus_app_files.cpp
     format_corpus/corpus_bookmarks.cpp
     format_corpus/corpus_code_notes.cpp
     format_corpus/corpus_rich_presence.cpp
     format_corpus/corpus_save_state.cpp
-    format_corpus/corpus_user_file.cpp)
-target_include_directories(cw_format_corpus_lib PUBLIC format_corpus)
+    format_corpus/corpus_user_file.cpp
+    # Until R7 creates the cw_ui library (ui_settings.cpp needs neither ImGui nor SDL).
+    ../src/frontend/ui_settings.cpp)
+target_include_directories(cw_format_corpus_lib PUBLIC format_corpus PRIVATE ../src/frontend)
 target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend PRIVATE cw_warnings)
 
 add_executable(cw_format_corpus format_corpus/main.cpp)
