@@ -2,7 +2,7 @@
     "max_file_lines": 400,
     "max_function_lines": 80,
     "files": {
-        "src/devtools/achievement_logic.cpp": 550,
+        "src/devtools/logic/achievement_logic.cpp": 550,
         "src/devtools/bookmarks.cpp": 813,
         "src/devtools/code_notes.cpp": 441,
         "src/devtools/leaderboard_editor.cpp": 487,
@@ -15,7 +15,7 @@
         "src/frontend/main.cpp": 574,
         "src/frontend/memory_viewer_window.cpp": 563,
         "src/frontend/watch_list_window.cpp": 449,
-        "tests/test_achievement_logic.cpp": 551,
+        "tests/logic/test_achievement_logic.cpp": 551,
         "tests/test_authoring_runtime.cpp": 754,
         "tests/test_core/test_core.c": 633,
         "tests/test_editor_live_test.cpp": 508,
