@@ -3,6 +3,7 @@
 # synthetic memory buffers. The modules split out so far live in subdirectories; cw_devtools holds
 # the rest and is removed once every module has its own target (refactor plan R8-R14).
 add_subdirectory(io)
+add_subdirectory(hash)
 
 add_library(cw_devtools STATIC
     achievement_editor.cpp
@@ -12,7 +13,6 @@ add_library(cw_devtools STATIC
     code_note_draft.cpp
     code_notes.cpp
     editor_live_test.cpp
-    game_hash.cpp
     logic_tester.cpp
     leaderboard_editor.cpp
     memory.cpp

@@ -1,6 +1,6 @@
 // RetroAchievements hash of PS1 content, on a synthetic disc generated here (no real game data).
 
-#include "cw/devtools/game_hash.hpp"
+#include "cw/hash/game_hash.hpp"
 #include "test_support.hpp"
 
 #include <doctest/doctest.h>
