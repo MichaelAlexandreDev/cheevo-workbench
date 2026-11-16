@@ -58,7 +58,9 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
    dropped unknown fields), wrong behavior on game switch/reload, keyboard focus leaking into
    the game, UI state keyed on values that change. Write findings most-severe first with
    `file:line` and the source you checked; separate bugs from suggestions.
-4. **Verify** yourself; do not trust the summary:
+4. **Verify** yourself; do not trust the summary. `tools/check-all.sh` runs the first four
+   checks below in one go (in `build-check/`, with `tools/lsan.supp` for the fontconfig leak);
+   the list explains what it does and what is still manual:
    - `cmake -S . -B build && cmake --build build -j` → **0 warnings**.
    - `ctest --test-dir build --output-on-failure` (or `./build/tests/cw_tests`).
    - ASan+UBSan build in a separate dir (`-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined
