@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cw/devtools/text_file_store.hpp"
+#include "cw/io/text_file_store.hpp"
 
 #include <cstddef>
 #include <cstdint>

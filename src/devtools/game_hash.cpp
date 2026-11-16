@@ -1,6 +1,6 @@
 #include "cw/devtools/game_hash.hpp"
 
-#include "cw/devtools/file_checks.hpp"
+#include "cw/io/file_checks.hpp"
 
 #include <rc_hash.h>
 

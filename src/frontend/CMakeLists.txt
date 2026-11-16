@@ -17,7 +17,7 @@ add_library(cw_frontend STATIC
 target_include_directories(cw_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cw_frontend
     PUBLIC cw_devtools libretro_api SDL3::SDL3
-    PRIVATE ${CMAKE_DL_LIBS} cw_warnings)
+    PRIVATE cw_io ${CMAKE_DL_LIBS} cw_warnings)
 
 # The ImGui windows and widgets (module `ui` in docs/planning/refactor-plan.md). Compiled against
 # the ImGui headers only: the application links `imgui`, the window tests `imgui_test_hooks`.

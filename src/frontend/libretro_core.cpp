@@ -1,6 +1,6 @@
 #include "libretro_core.hpp"
 
-#include "cw/devtools/file_checks.hpp"
+#include "cw/io/file_checks.hpp"
 
 #include "input_state.hpp"
 

@@ -29,7 +29,7 @@
     "functions": {
         "src/devtools/bookmarks.cpp::parse_bookmark": 101,
         "src/devtools/code_notes.cpp::load": 82,
-        "src/devtools/text_file_store.cpp::read_regular_file": 84,
+        "src/devtools/io/text_file_store.cpp::read_regular_file": 84,
         "src/devtools/user_file.cpp::read_asset": 119,
         "src/frontend/achievement_editor_window.cpp::apply": 90,
         "src/frontend/achievement_editor_window.cpp::conditions": 153,
