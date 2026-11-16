@@ -102,6 +102,8 @@ target_link_libraries(imgui_test_hooks PUBLIC SDL3::SDL3)
 add_executable(cw_window_tests
     test_main.cpp
     test_main_windows.cpp
+    test_window_assisted_search.cpp
+    test_window_shortcuts.cpp
     window_test_hooks.cpp
     ../src/frontend/achievement_editor_window.cpp
     ../src/frontend/assisted_search_window.cpp
