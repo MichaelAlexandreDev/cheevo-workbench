@@ -1,0 +1,8 @@
+# LeakSanitizer suppressions for tools/check-all.sh.
+#
+# fontconfig keeps a small, fixed allocation from its XML configuration parser for the life of the
+# process (FcInitBringUptoDate -> config parsing). ui_fonts.cpp deliberately never calls FcFini
+# between queries, because unloading would leak and rebuild the configuration each time. Only
+# allocations whose stack passes through libfontconfig are suppressed; leaks in project code still
+# fail.
+leak:libfontconfig.so

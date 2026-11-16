@@ -11,12 +11,17 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(CW_BUILD_TESTS "Build the unit tests" ON)
+option(CW_WERROR "Treat warnings in the project's own code as errors (used by tools/check-all.sh)"
+       OFF)
 
 include(GNUInstallDirs)
 
 # Warnings for our own targets only; third-party targets do not link this.
 add_library(cw_warnings INTERFACE)
 target_compile_options(cw_warnings INTERFACE -Wall -Wextra -Wpedantic -Wshadow)
+if(CW_WERROR)
+    target_compile_options(cw_warnings INTERFACE -Werror)
+endif()
 
 include(cmake/ThirdParty.cmake)
 
