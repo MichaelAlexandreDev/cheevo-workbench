@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Proof for a mechanical refactoring PR (decision D9 in docs/planning/refactor-plan.md): builds a
 # base revision (default: main) and this checkout (working tree included), then
-#   1. runs the format corpus from both builds on this checkout's fixtures and diffs the outputs:
-#      every byte the application writes must be identical;
+#   1. runs the format corpus from both builds on this checkout's fixtures and compares the
+#      outputs: every file the base writes must exist with identical bytes, and every line of the
+#      base's results.txt must still be there. New files and new results lines are allowed, so a
+#      PR may extend the corpus;
 #   2. compares the doctest case names of all test executables: none may be lost.
 #
 # Usage: tools/compare-with-main.sh [--allow-missing-corpus] [base]
@@ -59,6 +61,36 @@ build() {
     cmake --build "$build_dir" -j >/dev/null
 }
 
+# Compares two corpus outputs as described at the top. Prints each problem; returns 1 if any.
+compare_corpus() {
+    local base_out="$1" head_out="$2" problems=0 same=0 added=0 rel
+    while IFS= read -r -d '' rel; do
+        if [[ ! -f "$head_out/$rel" ]]; then
+            echo "missing in this checkout: $rel" >&2
+            problems=1
+        elif [[ "$rel" == results.txt ]]; then
+            local lost
+            lost="$(comm -23 <(sort "$base_out/$rel") <(sort "$head_out/$rel"))"
+            if [[ -n "$lost" ]]; then
+                printf 'results.txt lost these lines:\n%s\n' "$lost" >&2
+                problems=1
+            else
+                same=$((same + 1))
+            fi
+        elif cmp -s "$base_out/$rel" "$head_out/$rel"; then
+            same=$((same + 1))
+        else
+            diff -u "$base_out/$rel" "$head_out/$rel" | head -40 >&2 || true
+            problems=1
+        fi
+    done < <(cd "$base_out" && find . -type f -printf '%P\0' | sort -z)
+    while IFS= read -r -d '' rel; do
+        [[ -f "$base_out/$rel" ]] || added=$((added + 1))
+    done < <(cd "$head_out" && find . -type f -printf '%P\0')
+    echo "identical: $same files; new in this checkout: $added"
+    return "$problems"
+}
+
 # Every doctest case name of every test executable in a build, sorted and unique.
 test_names() {
     find "$1" -type f -perm -u+x -name 'cw_*tests' | sort | while read -r exe; do
@@ -101,10 +133,8 @@ else
     rm -rf "$dir/out"
     "$base_corpus" "$fixtures" "$dir/out/base"
     "$dir/head-build/tests/cw_format_corpus" "$fixtures" "$dir/out/head"
-    if diff -r "$dir/out/base" "$dir/out/head"; then
-        echo "identical: $(find "$dir/out/head" -type f | wc -l) files"
-    else
-        echo "the bytes written differ from $base (diff above)" >&2
+    if ! compare_corpus "$dir/out/base" "$dir/out/head"; then
+        echo "the bytes written differ from $base (see above)" >&2
         status=1
     fi
 fi
