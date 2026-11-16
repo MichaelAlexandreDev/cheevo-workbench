@@ -25,7 +25,7 @@ add_executable(cw_tests
     test_code_note_draft.cpp
     test_code_notes.cpp
     test_input_state.cpp
-    test_file_checks.cpp
+    io/test_file_checks.cpp
     test_frame_pacer.cpp
     test_game_hash.cpp
     test_game_ids.cpp
@@ -34,7 +34,10 @@ add_executable(cw_tests
     test_recent_files.cpp
     test_session_state.cpp
     test_video_frame.cpp)
-target_link_libraries(cw_tests PRIVATE cw_devtools cw_frontend doctest nlohmann_json cw_warnings)
+# Tests of a module live in tests/<module>/ (decision D12) and include the shared helpers from here.
+target_include_directories(cw_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(cw_tests PRIVATE cw_io cw_devtools cw_frontend doctest nlohmann_json
+    cw_warnings)
 target_compile_definitions(cw_tests PRIVATE CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>"
     CW_NOT_A_CORE_PATH="$<TARGET_FILE:cw_not_a_core>")
 add_dependencies(cw_tests cw_test_core cw_not_a_core)

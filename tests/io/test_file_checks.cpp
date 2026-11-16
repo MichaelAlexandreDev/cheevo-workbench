@@ -1,6 +1,6 @@
 // Clear messages for unusable input files (issue #34 and its review).
 
-#include "cw/devtools/file_checks.hpp"
+#include "cw/io/file_checks.hpp"
 #include "test_support.hpp"
 
 #include <doctest/doctest.h>
