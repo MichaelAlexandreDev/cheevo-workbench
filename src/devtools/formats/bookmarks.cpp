@@ -1,4 +1,4 @@
-#include "cw/devtools/bookmarks.hpp"
+#include "cw/formats/bookmarks.hpp"
 
 #include <nlohmann/json.hpp>
 #include <rcheevos/rc_internal.h>

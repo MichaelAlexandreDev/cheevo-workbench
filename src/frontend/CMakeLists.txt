@@ -35,7 +35,7 @@ add_library(cw_ui STATIC
     ui_widgets.cpp
     watch_list_window.cpp)
 target_link_libraries(cw_ui
-    PUBLIC cw_devtools cw_frontend cw_memory imgui_headers SDL3::SDL3
+    PUBLIC cw_devtools cw_formats cw_frontend cw_memory imgui_headers SDL3::SDL3
     PRIVATE ${CMAKE_DL_LIBS} cw_warnings)
 
 # The application around the windows (module `app`): menus, dialogs, status, game view. main.cpp
@@ -55,7 +55,7 @@ target_compile_definitions(cw_app PRIVATE CW_VERSION="${PROJECT_VERSION}")
 # The application: SDL3 window, OpenGL rendering and Dear ImGui UI.
 add_executable(cheevo-workbench main.cpp)
 target_link_libraries(cheevo-workbench PRIVATE
-    cw_app cw_ui cw_devtools cw_frontend imgui libretro_api SDL3::SDL3 OpenGL::GL cw_warnings
+    cw_app cw_ui cw_devtools cw_formats cw_frontend imgui libretro_api SDL3::SDL3 OpenGL::GL cw_warnings
     ${CMAKE_DL_LIBS})
 
 install(TARGETS cheevo-workbench RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

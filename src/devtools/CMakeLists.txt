@@ -6,17 +6,16 @@ add_subdirectory(io)
 add_subdirectory(hash)
 add_subdirectory(memory)
 add_subdirectory(logic)
+add_subdirectory(formats)
 
 add_library(cw_devtools STATIC
     achievement_editor.cpp
-    bookmarks.cpp
     code_note_draft.cpp
-    code_notes.cpp
     editor_live_test.cpp
     logic_tester.cpp
     leaderboard_editor.cpp
-    rich_presence_editor.cpp
-    user_file.cpp
-    user_file_store.cpp)
+    rich_presence_editor.cpp)
 target_include_directories(cw_devtools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(cw_devtools PUBLIC cw_io cw_logic cw_memory rcheevos PRIVATE nlohmann_json cw_warnings)
+target_link_libraries(cw_devtools
+    PUBLIC cw_formats cw_io cw_logic cw_memory rcheevos
+    PRIVATE cw_warnings)
