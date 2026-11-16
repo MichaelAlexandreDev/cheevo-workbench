@@ -7,7 +7,7 @@ add_executable(cw_tests
     memory/test_assisted_search.cpp
     test_achievement_editor.cpp
     test_editor_live_test.cpp
-    test_achievement_logic.cpp
+    logic/test_achievement_logic.cpp
     test_user_file.cpp
     test_user_file_store.cpp
     test_main.cpp
@@ -36,7 +36,7 @@ add_executable(cw_tests
     test_video_frame.cpp)
 # Tests of a module live in tests/<module>/ (decision D12) and include the shared helpers from here.
 target_include_directories(cw_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(cw_tests PRIVATE cw_io cw_hash cw_memory cw_devtools cw_frontend doctest nlohmann_json
+target_link_libraries(cw_tests PRIVATE cw_io cw_hash cw_logic cw_memory cw_devtools cw_frontend doctest nlohmann_json
     cw_warnings)
 target_compile_definitions(cw_tests PRIVATE CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>"
     CW_NOT_A_CORE_PATH="$<TARGET_FILE:cw_not_a_core>")
@@ -70,7 +70,7 @@ add_library(cw_format_corpus_lib STATIC
     format_corpus/corpus_user_file.cpp)
 target_include_directories(cw_format_corpus_lib PUBLIC format_corpus)
 # The directory settings are written by ui_widgets, which needs an ImGui build to link.
-target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend cw_memory cw_ui imgui
+target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend cw_logic cw_memory cw_ui imgui
     PRIVATE cw_warnings)
 
 add_executable(cw_format_corpus format_corpus/main.cpp)

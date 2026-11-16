@@ -3,9 +3,9 @@
 
 #include "corpus_support.hpp"
 
-#include "cw/devtools/achievement_logic.hpp"
 #include "cw/devtools/user_file.hpp"
 #include "cw/devtools/user_file_store.hpp"
+#include "cw/logic/achievement_logic.hpp"
 
 #include <stdexcept>
 #include <variant>
