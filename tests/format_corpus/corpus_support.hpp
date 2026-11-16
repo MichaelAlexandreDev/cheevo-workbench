@@ -53,5 +53,7 @@ void run_bookmarks(const std::filesystem::path& input, const std::filesystem::pa
 void run_code_notes(const std::filesystem::path& input, const std::filesystem::path& out,
                     Results& results);
 void run_save_states(const std::filesystem::path& out, Results& results);
+void run_app_files(const std::filesystem::path& input, const std::filesystem::path& out,
+                   Results& results);
 
 } // namespace cw_corpus
