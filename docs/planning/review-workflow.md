@@ -127,6 +127,11 @@ This section goes stale quickly: check `docs/roadmap.md`, `git log` and `gh issu
 
 ## Lessons so far (check for these in reviews)
 
+- Merging (learned on #51–#58): the user's uncommitted files stop `git rebase`; use
+  `git rebase --autostash main`, and never pipe a git step into `tail`, which hides its failure.
+  Right after a force-push GitHub reports the PR as not mergeable until it recomputes; wait for
+  `gh pr view <PR> --json mergeable` to say `MERGEABLE`. Deleting a PR's branch closes the PR,
+  so delete branches only after `gh pr view <PR> --json state` says `MERGED`.
 - ImGui identifies widgets by label: a label that changes (a live value) loses clicks. Use
   `"text###stable_id"`.
 - ImGui keyboard navigation and text fields can swallow or leak keys: game input must ignore

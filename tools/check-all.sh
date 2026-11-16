@@ -2,7 +2,8 @@
 # Runs every check a change must pass before merging, stopping at the first failure:
 #   1. clang-format --dry-run --Werror on the tracked C/C++ files;
 #   2. a Debug build with warnings as errors (project code only) and ctest;
-#   3. an ASan+UBSan build and ctest, with LeakSanitizer on (tools/lsan.supp).
+#   3. an ASan+UBSan build and ctest, with LeakSanitizer on (tools/lsan.supp). Tests labeled slow
+#      (static analysis such as the function size ratchet) run only in step 2.
 #
 # It builds in its own directories (build-check/ by default, or $CW_CHECK_DIR), so the developer's
 # build/ and build-asan/ caches are never reconfigured.
@@ -24,7 +25,8 @@ step() {
     printf '\n==> %s\n' "$*"
 }
 
-# Configures, builds and tests one build directory. Extra arguments go to the configure step.
+# Configures, builds and tests one build directory. Extra arguments go to the configure step;
+# ctest_args (set by the caller) go to ctest.
 build_and_test() {
     local dir="$1"
     shift
@@ -35,7 +37,7 @@ build_and_test() {
     fi
     cmake -S "$root" -B "$dir" "${gen[@]}" -DCMAKE_BUILD_TYPE=Debug -DCW_WERROR=ON "$@" >/dev/null
     cmake --build "$dir" -j
-    ctest --test-dir "$dir" --output-on-failure
+    ctest --test-dir "$dir" --output-on-failure "${ctest_args[@]}"
 }
 
 step "clang-format"
@@ -44,12 +46,14 @@ clang-format --dry-run --Werror "${sources[@]}"
 echo "${#sources[@]} files formatted"
 
 step "Debug build (warnings are errors) + ctest"
+ctest_args=()
 build_and_test "$check_dir/debug"
 
 step "ASan+UBSan build + ctest"
 sanitize="-fsanitize=address,undefined -fno-omit-frame-pointer"
 export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1${UBSAN_OPTIONS:+:$UBSAN_OPTIONS}"
 export LSAN_OPTIONS="suppressions=$root/tools/lsan.supp:print_suppressions=0${LSAN_OPTIONS:+:$LSAN_OPTIONS}"
+ctest_args=(-LE slow)
 build_and_test "$check_dir/asan" "-DCMAKE_CXX_FLAGS=$sanitize"
 
 step "All checks passed"
