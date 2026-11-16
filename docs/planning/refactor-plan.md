@@ -1,8 +1,8 @@
 # Refactoring plan — modules with machine-checked rules
 
 Phase 0 deliverable (read-only), 2026-11-16, measured on `main` = `37beec5`. Nothing in `src/`,
-`tests/` or CMake was changed to produce this document. Decisions D1–D14 were accepted on
-2026-11-16 (section 3); one inventory question is still open.
+`tests/` or CMake was changed to produce this document. Decisions D1–D14 and the inventory were
+accepted on 2026-11-16 (section 3).
 
 Goal: go from three large targets (`cw_devtools`, `cw_frontend`, the executable) to small modules
 with a clear owner and machine-checked dependency rules, **without changing behavior or on-disk
@@ -146,8 +146,13 @@ Config dir = `$XDG_CONFIG_HOME/cheevo-workbench` (`paths.cpp:47`), data dir =
 | `<config>/ra-cache-path.txt` | `code_notes_window.cpp:73` | window test only |
 | `<data>/states/*.state<N>` | `save_states.cpp` | yes (RASTATE) |
 
-**"Session":** `SessionState` (`session_state.hpp`) only holds Running/Paused/FrameAdvance in
-memory; **no session file exists**. Nothing to freeze there beyond the behavior.
+"Session" is not in the inventory: `SessionState` (`session_state.hpp`) only holds
+Running/Paused/FrameAdvance in memory, and no session file exists (agreed with the user on
+2026-11-16). The pause and frame-advance behavior is covered by the hotkeys below.
+
+`system-path.txt` and `ra-cache-path.txt` are written by `save_directory_setting`
+(`ui_widgets.cpp:96`) with a plain truncating write, not the temporary file + rename the other
+files use. Recorded here as an observation; a refactoring does not change it.
 
 Consequence of `imgui.ini`: renaming a window's title or `###id` silently drops the user's
 layout. Window titles and IDs are frozen like a file format.
@@ -290,8 +295,7 @@ Accepted as written. Also: window titles/`###` IDs are frozen (`imgui.ini`, sect
 
 ### Questions for the user
 
-**Status (2026-11-16):** the user accepted the recommendations for questions 1–6 ("pode
-começar"). Question 7 is still open; it blocks nothing before R5.
+**Status (2026-11-16):** the user accepted the recommendations for all seven questions.
 
 1. **D1:** accept D1-A (modules `io`, `hash`, `memory`, `logic`, `formats`, `authoring`, `runtime`)
    instead of the brief's five? *Recommended: yes.*
@@ -308,7 +312,8 @@ começar"). Question 7 is still open; it blocks nothing before R5.
    split a file only after the step that touched it was validated, so a validation failure is
    not mixed with a move.
 7. **Inventory:** "session" has no file (only in-memory state). Did you mean something else? Is
-   anything missing from section 2?
+   anything missing from section 2? *Answered 2026-11-16: the word came from the brief with no
+   file behind it; it was dropped from the inventory.*
 
 ## 4. Ordered issues
 
@@ -368,8 +373,9 @@ the ratchet and the layer test green with no new exception and, from R4 on,
   - the script runs against `main` itself and reports zero diffs.
 
 **R5 — app-file round trips.**
-- Scope: byte-exact tests for `recent-files.txt`, `game-ids.txt`, `system-path.txt`,
-  `ra-cache-path.txt`, `ui-settings.txt`; added to the corpus.
+- Scope: byte-exact tests for `recent-files.txt`, `game-ids.txt` and `ui-settings.txt`, added
+  to the corpus. `system-path.txt` and `ra-cache-path.txt` move to R7, because their writer
+  lives in `ui_widgets` (ImGui and SDL) and the corpus can link it only once `cw_ui` exists.
 - Proof: as in R4.
 
 **R6 — window characterization gaps.**
@@ -387,6 +393,8 @@ the ratchet and the layer test green with no new exception and, from R4 on,
 ### Libraries (step 3)
 
 **R7 — `imgui_headers`, `cw_ui`, `cw_app` (CMake only, no file moves).**
+- Also: the corpus links `cw_ui` instead of compiling `ui_settings.cpp`, and adds
+  `system-path.txt` and `ra-cache-path.txt` (moved here from R5).
 - Proof:
   - standard;
   - no `../src/` left in `tests/CMakeLists.txt`;
