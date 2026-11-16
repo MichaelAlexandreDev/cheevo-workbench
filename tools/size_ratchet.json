@@ -7,7 +7,7 @@
         "src/devtools/code_notes.cpp": 441,
         "src/devtools/leaderboard_editor.cpp": 487,
         "src/devtools/logic_tester.cpp": 907,
-        "src/devtools/memory_search.cpp": 411,
+        "src/devtools/memory/memory_search.cpp": 411,
         "src/devtools/user_file.cpp": 552,
         "src/frontend/achievement_editor_window.cpp": 1135,
         "src/frontend/authoring_window.cpp": 1038,

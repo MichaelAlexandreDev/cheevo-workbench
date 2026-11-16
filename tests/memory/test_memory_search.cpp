@@ -1,6 +1,6 @@
 // Snapshot search logic on synthetic memory only (no SDL, core, ROM, or game).
 
-#include "cw/devtools/memory_search.hpp"
+#include "cw/memory/memory_search.hpp"
 
 #include <doctest/doctest.h>
 

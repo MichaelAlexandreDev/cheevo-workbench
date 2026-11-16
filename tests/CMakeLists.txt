@@ -4,7 +4,7 @@ add_library(cw_not_a_core MODULE test_core/not_a_core.c)
 target_link_libraries(cw_not_a_core PRIVATE cw_warnings)
 
 add_executable(cw_tests
-    test_assisted_search.cpp
+    memory/test_assisted_search.cpp
     test_achievement_editor.cpp
     test_editor_live_test.cpp
     test_achievement_logic.cpp
@@ -19,9 +19,9 @@ add_executable(cw_tests
     test_leaderboard_editor.cpp
     test_rich_presence_editor.cpp
     test_libretro_memory.cpp
-    test_memory.cpp
-    test_memory_search.cpp
-    test_watch_list.cpp
+    memory/test_memory.cpp
+    memory/test_memory_search.cpp
+    memory/test_watch_list.cpp
     test_code_note_draft.cpp
     test_code_notes.cpp
     test_input_state.cpp
@@ -36,7 +36,7 @@ add_executable(cw_tests
     test_video_frame.cpp)
 # Tests of a module live in tests/<module>/ (decision D12) and include the shared helpers from here.
 target_include_directories(cw_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(cw_tests PRIVATE cw_io cw_hash cw_devtools cw_frontend doctest nlohmann_json
+target_link_libraries(cw_tests PRIVATE cw_io cw_hash cw_memory cw_devtools cw_frontend doctest nlohmann_json
     cw_warnings)
 target_compile_definitions(cw_tests PRIVATE CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>"
     CW_NOT_A_CORE_PATH="$<TARGET_FILE:cw_not_a_core>")
@@ -70,7 +70,7 @@ add_library(cw_format_corpus_lib STATIC
     format_corpus/corpus_user_file.cpp)
 target_include_directories(cw_format_corpus_lib PUBLIC format_corpus)
 # The directory settings are written by ui_widgets, which needs an ImGui build to link.
-target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend cw_ui imgui
+target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend cw_memory cw_ui imgui
     PRIVATE cw_warnings)
 
 add_executable(cw_format_corpus format_corpus/main.cpp)
@@ -107,14 +107,14 @@ add_executable(cw_window_tests
 target_compile_definitions(cw_window_tests PRIVATE
     CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>")
 target_link_libraries(cw_window_tests PRIVATE
-    cw_app cw_ui cw_devtools cw_frontend imgui_test_hooks libretro_api doctest SDL3::SDL3 OpenGL::GL
+    cw_app cw_ui cw_devtools cw_frontend cw_memory imgui_test_hooks libretro_api doctest SDL3::SDL3 OpenGL::GL
     cw_warnings ${CMAKE_DL_LIBS})
 add_dependencies(cw_window_tests cw_test_core)
 add_test(NAME cw_window_tests COMMAND cw_window_tests)
 
 # Run explicitly in a Release build; timings are informational, never a CI threshold.
-add_executable(cw_assisted_search_benchmark EXCLUDE_FROM_ALL benchmark_assisted_search.cpp)
-target_link_libraries(cw_assisted_search_benchmark PRIVATE cw_devtools cw_warnings)
+add_executable(cw_assisted_search_benchmark EXCLUDE_FROM_ALL memory/benchmark_assisted_search.cpp)
+target_link_libraries(cw_assisted_search_benchmark PRIVATE cw_memory cw_warnings)
 
 # Size ratchet (tools/size_ratchet.json): files and functions over the limits may only shrink. The
 # function check runs clang-tidy over every translation unit, so it is labeled slow; skip it in the

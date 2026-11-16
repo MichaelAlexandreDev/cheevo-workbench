@@ -1,6 +1,6 @@
 // cw_devtools memory interface, on synthetic buffers only (no SDL, no core, no game).
 
-#include "cw/devtools/memory.hpp"
+#include "cw/memory/memory.hpp"
 
 #include <doctest/doctest.h>
 

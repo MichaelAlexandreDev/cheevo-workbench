@@ -7,7 +7,7 @@
 #include "corpus_support.hpp"
 
 #include "cw/devtools/bookmarks.hpp"
-#include "cw/devtools/memory.hpp"
+#include "cw/memory/memory.hpp"
 
 namespace cw_corpus {
 namespace {

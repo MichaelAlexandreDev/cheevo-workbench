@@ -16,7 +16,7 @@ add_library(cw_frontend STATIC
     video_frame.cpp)
 target_include_directories(cw_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cw_frontend
-    PUBLIC cw_devtools libretro_api SDL3::SDL3
+    PUBLIC cw_devtools cw_memory libretro_api SDL3::SDL3
     PRIVATE cw_io ${CMAKE_DL_LIBS} cw_warnings)
 
 # The ImGui windows and widgets (module `ui` in docs/planning/refactor-plan.md). Compiled against
@@ -35,7 +35,7 @@ add_library(cw_ui STATIC
     ui_widgets.cpp
     watch_list_window.cpp)
 target_link_libraries(cw_ui
-    PUBLIC cw_devtools cw_frontend imgui_headers SDL3::SDL3
+    PUBLIC cw_devtools cw_frontend cw_memory imgui_headers SDL3::SDL3
     PRIVATE ${CMAKE_DL_LIBS} cw_warnings)
 
 # The application around the windows (module `app`): menus, dialogs, status, game view. main.cpp

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "cw/devtools/memory.hpp"
 #include "cw/devtools/user_file.hpp"
+#include "cw/memory/memory.hpp"
 
 #include <cstddef>
 #include <cstdint>

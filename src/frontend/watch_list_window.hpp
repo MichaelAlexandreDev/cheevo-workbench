@@ -2,7 +2,7 @@
 
 #include "cw/devtools/bookmarks.hpp"
 #include "cw/devtools/code_notes.hpp"
-#include "cw/devtools/memory.hpp"
+#include "cw/memory/memory.hpp"
 #include "memory_viewer_window.hpp"
 
 #include <cstdint>

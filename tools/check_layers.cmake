@@ -14,11 +14,12 @@ if(NOT DEFINED ROOT)
 endif()
 
 # Modules, matched in this order against the path relative to ROOT; the first match wins.
-# io = cw_io, hash = cw_hash (src/devtools/<module>); devtools = the rest of cw_devtools until R14.
+# io = cw_io, hash = cw_hash, memory = cw_memory (src/devtools/<module>); devtools = the rest of cw_devtools until R14.
 # host = cw_frontend, ui = cw_ui, app = cw_app plus main.cpp (src/frontend/CMakeLists.txt).
-set(modules io hash devtools host ui app)
+set(modules io hash memory devtools host ui app)
 set(io_path "^src/devtools/io/")
 set(hash_path "^src/devtools/hash/")
+set(memory_path "^src/devtools/memory/")
 set(devtools_path "^src/devtools/")
 set(host_path "^src/frontend/(audio_sink|core_options|frame_pacer|game_ids|input_state|libretro_core|libretro_memory|paths|recent_files|save_state|save_states|sdl_audio_output|session_state|video_frame)\\.(cpp|hpp)$")
 set(ui_path "^src/frontend/(achievement_editor_window|assisted_search_window|authoring_window|code_notes_window|logic_tester_window|memory_search_window|memory_viewer_window|watch_list_window|ui_appearance|ui_fonts|ui_scale|ui_settings|ui_widgets)\\.(cpp|hpp)$")
@@ -27,10 +28,11 @@ set(app_path "^src/frontend/(app_state|content_dialogs|game_view|gamepad_input|m
 # Modules each one may include besides itself.
 set(io_uses "")
 set(hash_uses io)
-set(devtools_uses io)
-set(host_uses devtools io hash)
-set(ui_uses devtools host io hash)
-set(app_uses devtools host ui io hash)
+set(memory_uses "")
+set(devtools_uses io memory)
+set(host_uses devtools io hash memory)
+set(ui_uses devtools host io hash memory)
+set(app_uses devtools host ui io hash memory)
 
 # Third-party headers each module may not include (regular expressions on the include text).
 set(gl "^GL/" "SDL_opengl")
@@ -38,13 +40,14 @@ set(gui "^imgui" "^backends/" ${gl})
 set(devtools_forbidden ${gui} "^SDL3/" "^SDL\\.h$" "libretro\\.h$")
 set(io_forbidden ${devtools_forbidden})
 set(hash_forbidden ${devtools_forbidden})
+set(memory_forbidden ${devtools_forbidden})
 set(host_forbidden ${gui})
 set(ui_forbidden ${gl})
 set(app_forbidden "")
 
 # Where quoted includes are searched after the including file's own directory (the include paths
 # the CMake targets export).
-set(include_roots "src/devtools/io/include" "src/devtools/hash/include" "src/devtools/include" "src/frontend")
+set(include_roots "src/devtools/io/include" "src/devtools/hash/include" "src/devtools/memory/include" "src/devtools/include" "src/frontend")
 
 function(module_of path out)
     foreach(module IN LISTS modules)
