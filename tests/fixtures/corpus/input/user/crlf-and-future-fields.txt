@@ -1,0 +1,4 @@
+an opaque future writer/version 9
+Game title: subtitle
+17|42:"0xH0001=1":Title:Description:::progression:Author:10:::::123:future-achievement
+L21|8:"0xH0002=1":"0xH0003=1":"0xH0004=1":"M:0xH0005":VALUE:Board::1:future-leaderboard

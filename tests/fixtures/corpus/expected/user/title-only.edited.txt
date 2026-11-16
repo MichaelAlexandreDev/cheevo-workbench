@@ -1,0 +1,4 @@
+1.4.2.0
+Title only
+0:"0xH0001=1_0xH0002>=3.10.":New achievement:"Added by the corpus: 100%":::progression:corpus:10:::::00000
+L0:"0xH0001=1":"0xH0001=2":"0xH0001=3":"M:0xH0004*2":SCORE:New board:Highest score:0

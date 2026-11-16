@@ -1,0 +1,46 @@
+user/achievements-and-leaderboards: loaded and saved 7 entries
+user/crlf-and-future-fields: loaded and saved 2 entries
+user/malformed-logic: load failed: Line 3, field 2: Group 0, condition 1, byte 1: Invalid memory operand
+user/malformed-logic: save refused: User file store is not writable; load a valid path before saving.
+user/quoting-and-utf8: loaded and saved 1 entries
+user/title-only: loaded and saved 0 entries
+rich/bom-crlf: saved
+rich/lookups-and-conditions: saved
+rich/unknown-lookup: invalid: Unknown Rich Presence macro '@Missing'.
+rich/unknown-lookup: save refused: Unknown Rich Presence macro '@Missing'.
+rich/whitespace-only: saved
+bookmarks/current-format: 4 bookmarks, 4 supported
+bookmarks/current-format: local file writable
+bookmarks/legacy-size-enum: unsupported : BitCount
+bookmarks/legacy-size-enum: 3 bookmarks, 2 supported
+bookmarks/legacy-size-enum: local file writable
+bookmarks/malformed: import failed: Could not import <in>/bookmarks/malformed.json: [json.exception.parse_error.101] parse error at line 1, column 35: syntax error while parsing object - unexpected end of input; expected '}'
+bookmarks/malformed: local load error: Could not load <out>/bookmarks/malformed/local/bookmarks/1-Bookmarks.json: [json.exception.parse_error.101] parse error at line 1, column 35: syntax error while parsing object - unexpected end of input; expected '}'
+bookmarks/malformed: local file read-only
+bookmarks/malformed: add refused: Could not load <out>/bookmarks/malformed/local/bookmarks/1-Bookmarks.json: [json.exception.parse_error.101] parse error at line 1, column 35: syntax error while parsing object - unexpected end of input; expected '}'
+bookmarks/unknown-fields: unsupported I:0x 0020_M:0xW0008: Indirect address
+bookmarks/unknown-fields: 3 bookmarks, 2 supported
+bookmarks/unknown-fields: local file writable
+notes/both-sources: user 0x000020 "changed locally"
+notes/both-sources: user 0x00abcd "lowercase address in the file"
+notes/both-sources: user 0x1f0040 "user only"
+notes/both-sources: server 0x000020 "server version" by alice
+notes/both-sources: server 0x000030 "server only\nsecond line" by bob
+notes/both-sources: to publish 0x000020 "changed locally"
+notes/both-sources: to publish 0x00abcd "lowercase address in the file"
+notes/both-sources: to publish 0x1f0040 "user only"
+notes/malformed-server: server cache error: Could not load <out>/notes/malformed-server/racache/Data/1-Notes.json: invalid hexadecimal address: xyz
+notes/malformed-user: user file error: Could not load <out>/notes/malformed-user/data/notes/1.json: [json.exception.parse_error.101] parse error at line 1, column 4: syntax error while parsing object key - invalid literal; last read: '{ no'; expected string literal
+notes/malformed-user: set refused: Could not load <out>/notes/malformed-user/data/notes/1.json: [json.exception.parse_error.101] parse error at line 1, column 4: syntax error while parsing object key - invalid literal; last read: '{ no'; expected string literal
+notes/server-only: server 0x00001f "[8-bit] lives" by carol
+notes/server-only: server 0xabcdef "日本語のメモ" by carol
+state/core-1: core 1 bytes, no achievements block
+state/core-8: core 8 bytes, no achievements block
+state/core-9-achievements-3: core 9 bytes, achievements 3 bytes
+state/core-16-achievements-8: core 16 bytes, achievements 8 bytes
+state/raw-state: core 24 bytes, no achievements block
+state/truncated-header: rejected: Truncated RASTATE header
+state/unknown-version: rejected: Unsupported RASTATE version 2
+state/truncated-block: rejected: Truncated block header
+state/no-mem-block: rejected: The state file has no core data (MEM block)
+state/no-end-block: rejected: Truncated state file (no END block)

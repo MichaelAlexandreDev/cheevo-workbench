@@ -59,6 +59,28 @@ target_include_directories(cw_ui_tests PRIVATE ../src/frontend)
 target_link_libraries(cw_ui_tests PRIVATE cw_devtools imgui doctest cw_warnings ${CMAKE_DL_LIBS})
 add_test(NAME cw_ui_tests COMMAND cw_ui_tests)
 
+# Format corpus (decision D9 of docs/planning/refactor-plan.md): loads and saves synthetic fixtures
+# through the application's public API. cw_format_tests compares the result with the golden files;
+# tools/compare-with-main.sh runs cw_format_corpus from two builds and compares their outputs.
+add_library(cw_format_corpus_lib STATIC
+    format_corpus/corpus.cpp
+    format_corpus/corpus_bookmarks.cpp
+    format_corpus/corpus_code_notes.cpp
+    format_corpus/corpus_rich_presence.cpp
+    format_corpus/corpus_save_state.cpp
+    format_corpus/corpus_user_file.cpp)
+target_include_directories(cw_format_corpus_lib PUBLIC format_corpus)
+target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend PRIVATE cw_warnings)
+
+add_executable(cw_format_corpus format_corpus/main.cpp)
+target_link_libraries(cw_format_corpus PRIVATE cw_format_corpus_lib cw_warnings)
+
+add_executable(cw_format_tests test_main.cpp test_format_corpus.cpp)
+target_compile_definitions(cw_format_tests PRIVATE
+    CW_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/corpus")
+target_link_libraries(cw_format_tests PRIVATE cw_format_corpus_lib doctest cw_warnings)
+add_test(NAME cw_format_tests COMMAND cw_format_tests)
+
 # Characterization tests for the windows inside src/frontend/main.cpp. They compile that file into
 # the test (with its main() renamed) and press the real widgets through ImGui's test engine hooks,
 # so a dedicated ImGui build is needed: the hooks must not reach the shipped application.

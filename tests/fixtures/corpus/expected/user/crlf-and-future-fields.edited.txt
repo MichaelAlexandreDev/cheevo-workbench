@@ -1,0 +1,6 @@
+an opaque future writer/version 9
+Game title: subtitle
+17|42:"0xH0001=1":"Edited: title":Description:::progression:Author:25:::::123:future-achievement
+L21|8:"0xH0002=1":"0xH0003=1":"0xH0004=1":"M:0xH0005":VALUE:Board:"Edited \"description\"":0:future-leaderboard
+0:"0xH0001=1_0xH0002>=3.10.":New achievement:"Added by the corpus: 100%":::progression:corpus:10:::::00000
+L0:"0xH0001=1":"0xH0001=2":"0xH0001=3":"M:0xH0004*2":SCORE:New board:Highest score:0
