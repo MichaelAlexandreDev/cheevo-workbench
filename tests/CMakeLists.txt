@@ -104,6 +104,7 @@ add_executable(cw_window_tests
     test_main_windows.cpp
     test_window_achievement_editor.cpp
     test_window_assisted_search.cpp
+    test_window_authoring.cpp
     test_window_shortcuts.cpp
     window_test_hooks.cpp
     ../src/frontend/achievement_editor_window.cpp
