@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cw/devtools/code_notes.hpp"
+#include "cw/formats/code_notes.hpp"
 #include "cw/memory/memory.hpp"
 #include "memory_viewer_window.hpp"
 

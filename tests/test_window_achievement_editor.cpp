@@ -8,8 +8,8 @@
 #include "achievement_editor_window.hpp"
 
 #include "cw/devtools/achievement_editor.hpp"
-#include "cw/devtools/code_notes.hpp"
 #include "cw/devtools/logic_tester.hpp"
+#include "cw/formats/code_notes.hpp"
 
 #include <filesystem>
 #include <fstream>

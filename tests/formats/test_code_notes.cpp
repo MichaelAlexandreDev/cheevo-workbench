@@ -1,4 +1,4 @@
-#include "cw/devtools/code_notes.hpp"
+#include "cw/formats/code_notes.hpp"
 #include "test_support.hpp"
 
 #include <doctest/doctest.h>

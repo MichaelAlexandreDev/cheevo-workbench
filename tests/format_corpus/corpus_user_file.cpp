@@ -3,8 +3,8 @@
 
 #include "corpus_support.hpp"
 
-#include "cw/devtools/user_file.hpp"
-#include "cw/devtools/user_file_store.hpp"
+#include "cw/formats/user_file.hpp"
+#include "cw/formats/user_file_store.hpp"
 #include "cw/logic/achievement_logic.hpp"
 
 #include <stdexcept>

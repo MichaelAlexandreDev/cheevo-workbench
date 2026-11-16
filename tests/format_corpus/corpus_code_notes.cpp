@@ -4,7 +4,7 @@
 
 #include "corpus_support.hpp"
 
-#include "cw/devtools/code_notes.hpp"
+#include "cw/formats/code_notes.hpp"
 
 #include <cstdio>
 
