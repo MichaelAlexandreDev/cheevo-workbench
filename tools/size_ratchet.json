@@ -21,7 +21,7 @@
         "tests/test_editor_live_test.cpp": 508,
         "tests/test_libretro_core.cpp": 455,
         "tests/test_logic_tester.cpp": 601,
-        "tests/test_main_windows.cpp": 795,
+        "tests/test_main_windows.cpp": 768,
         "tests/test_save_states.cpp": 473,
         "tests/test_user_file.cpp": 421,
         "tests/test_user_file_store.cpp": 417
