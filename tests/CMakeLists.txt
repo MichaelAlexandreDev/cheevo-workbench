@@ -50,13 +50,8 @@ add_executable(cw_ui_tests
     test_main.cpp
     test_authoring_ui.cpp
     test_ui_appearance.cpp
-    test_ui_fonts.cpp
-    ../src/frontend/authoring_window.cpp
-    ../src/frontend/ui_appearance.cpp
-    ../src/frontend/ui_fonts.cpp
-    ../src/frontend/ui_settings.cpp)
-target_include_directories(cw_ui_tests PRIVATE ../src/frontend)
-target_link_libraries(cw_ui_tests PRIVATE cw_devtools imgui doctest cw_warnings ${CMAKE_DL_LIBS})
+    test_ui_fonts.cpp)
+target_link_libraries(cw_ui_tests PRIVATE cw_ui imgui doctest cw_warnings)
 add_test(NAME cw_ui_tests COMMAND cw_ui_tests)
 
 # Format corpus (decision D9 of docs/planning/refactor-plan.md): loads and saves synthetic fixtures
@@ -69,11 +64,11 @@ add_library(cw_format_corpus_lib STATIC
     format_corpus/corpus_code_notes.cpp
     format_corpus/corpus_rich_presence.cpp
     format_corpus/corpus_save_state.cpp
-    format_corpus/corpus_user_file.cpp
-    # Until R7 creates the cw_ui library (ui_settings.cpp needs neither ImGui nor SDL).
-    ../src/frontend/ui_settings.cpp)
-target_include_directories(cw_format_corpus_lib PUBLIC format_corpus PRIVATE ../src/frontend)
-target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend PRIVATE cw_warnings)
+    format_corpus/corpus_user_file.cpp)
+target_include_directories(cw_format_corpus_lib PUBLIC format_corpus)
+# The directory settings are written by ui_widgets, which needs an ImGui build to link.
+target_link_libraries(cw_format_corpus_lib PUBLIC cw_devtools cw_frontend cw_ui imgui
+    PRIVATE cw_warnings)
 
 add_executable(cw_format_corpus format_corpus/main.cpp)
 target_link_libraries(cw_format_corpus PRIVATE cw_format_corpus_lib cw_warnings)
@@ -84,9 +79,9 @@ target_compile_definitions(cw_format_tests PRIVATE
 target_link_libraries(cw_format_tests PRIVATE cw_format_corpus_lib doctest cw_warnings)
 add_test(NAME cw_format_tests COMMAND cw_format_tests)
 
-# Characterization tests for the windows inside src/frontend/main.cpp. They compile that file into
-# the test (with its main() renamed) and press the real widgets through ImGui's test engine hooks,
-# so a dedicated ImGui build is needed: the hooks must not reach the shipped application.
+# Window tests. They link cw_app and cw_ui, compile src/frontend/main.cpp into test_main_windows.cpp
+# (with its main() renamed) and press the real widgets through ImGui's test engine hooks, so they
+# link a dedicated ImGui build: the hooks must not reach the shipped application.
 add_library(imgui_test_hooks STATIC
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_demo.cpp
@@ -95,9 +90,8 @@ add_library(imgui_test_hooks STATIC
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
-target_include_directories(imgui_test_hooks SYSTEM PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_compile_definitions(imgui_test_hooks PUBLIC IMGUI_ENABLE_TEST_ENGINE)
-target_link_libraries(imgui_test_hooks PUBLIC SDL3::SDL3)
+target_link_libraries(imgui_test_hooks PUBLIC imgui_headers)
 
 add_executable(cw_window_tests
     test_main.cpp
@@ -106,32 +100,12 @@ add_executable(cw_window_tests
     test_window_assisted_search.cpp
     test_window_authoring.cpp
     test_window_shortcuts.cpp
-    window_test_hooks.cpp
-    ../src/frontend/achievement_editor_window.cpp
-    ../src/frontend/assisted_search_window.cpp
-    ../src/frontend/authoring_window.cpp
-    ../src/frontend/code_notes_window.cpp
-    ../src/frontend/game_view.cpp
-    ../src/frontend/main_menu.cpp
-    ../src/frontend/status_window.cpp
-    ../src/frontend/content_dialogs.cpp
-    ../src/frontend/gamepad_input.cpp
-    ../src/frontend/app_state.cpp
-    ../src/frontend/logic_tester_window.cpp
-    ../src/frontend/memory_search_window.cpp
-    ../src/frontend/memory_viewer_window.cpp
-    ../src/frontend/ui_appearance.cpp
-    ../src/frontend/ui_fonts.cpp
-    ../src/frontend/ui_settings.cpp
-    ../src/frontend/ui_widgets.cpp
-    ../src/frontend/watch_list_window.cpp)
-target_include_directories(cw_window_tests PRIVATE ../src/frontend)
+    window_test_hooks.cpp)
 target_compile_definitions(cw_window_tests PRIVATE
-    CW_VERSION="${PROJECT_VERSION}"
     CW_TEST_CORE_PATH="$<TARGET_FILE:cw_test_core>")
 target_link_libraries(cw_window_tests PRIVATE
-    cw_devtools cw_frontend imgui_test_hooks libretro_api doctest SDL3::SDL3 OpenGL::GL cw_warnings
-    ${CMAKE_DL_LIBS})
+    cw_app cw_ui cw_devtools cw_frontend imgui_test_hooks libretro_api doctest SDL3::SDL3 OpenGL::GL
+    cw_warnings ${CMAKE_DL_LIBS})
 add_dependencies(cw_window_tests cw_test_core)
 add_test(NAME cw_window_tests COMMAND cw_window_tests)
 
