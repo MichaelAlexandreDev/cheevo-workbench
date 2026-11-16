@@ -3,6 +3,7 @@
 // the WindowsHarness below should need updating; the expectations must stay as they are.
 
 #include "test_support.hpp"
+#include "window_test_support.hpp"
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -25,39 +26,11 @@ using namespace cw;
 
 namespace {
 
-struct RecordedItem {
-    ImGuiID id = 0;
-    ImRect rect;
-    std::string window;
-    std::string label;
-};
-
-std::vector<RecordedItem> recorded_items;
+// The hooks that fill this list live in window_test_hooks.cpp, shared by every window test.
+using cw_test::RecordedItem;
+std::vector<RecordedItem>& recorded_items = cw_test::recorded_items();
 
 } // namespace
-
-// ImGui calls these for every widget when TestEngineHookItems is on.
-void ImGuiTestEngineHook_ItemAdd(ImGuiContext* context, ImGuiID id, const ImRect& rect,
-                                 const ImGuiLastItemData*) {
-    const ImGuiWindow* window = context->CurrentWindow;
-    recorded_items.push_back({id, rect, window ? window->RootWindow->Name : "", ""});
-}
-
-void ImGuiTestEngineHook_ItemInfo(ImGuiContext*, ImGuiID id, const char* label,
-                                  ImGuiItemStatusFlags) {
-    for (auto item = recorded_items.rbegin(); item != recorded_items.rend(); ++item) {
-        if (item->id == id) {
-            item->label = label ? label : "";
-            return;
-        }
-    }
-}
-
-void ImGuiTestEngineHook_Log(ImGuiContext*, const char*, ...) {}
-
-const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*, ImGuiID) {
-    return nullptr;
-}
 
 namespace {
 
