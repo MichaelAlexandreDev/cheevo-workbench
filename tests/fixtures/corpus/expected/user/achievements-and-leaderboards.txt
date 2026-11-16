@@ -1,0 +1,9 @@
+1.4.2.0
+Synthetic Corpus Game
+101:"0xH0001=1_0xH0002>=3":First steps:Reach the first room:::progression:corpus:5:::::00101
+102|7:"0xH0003=1_N:0xH0004=2_0xH0005=1.2.":"Title: with colon":"Description, \"quoted\"":::missable:corpus:10:::::00102
+0:"R:0xH0006=1_0xH0007=1":Draft without ID:Local only:::::0:::::00000
+L201:"0xH0010=1":"0xH0010=2":"0xH0010=3":"0xH0011*2_0xH0012":SCORE:Best score:Higher is better:0
+L202|7:"0xH0013=1":"0=1":"0xH0013=2":"M:0xX0014":FRAMES:Fastest time:Lower is better:1
+
+X9:an unknown future record

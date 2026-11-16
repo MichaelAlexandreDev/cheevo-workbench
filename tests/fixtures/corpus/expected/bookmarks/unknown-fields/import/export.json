@@ -1,0 +1,1 @@
+{"Version":2,"Vendor":{"keep":[1,2]},"Bookmarks":[{"MemAddr":"I:0x 0020_M:0xW0008","Description":"pointer","Decimal":true,"Vendor":{"keep":[1,2]}},{"MemAddr":"0xH300000","Description":"beyond 2 MiB"},{"MemAddr":"0xH000030","Description":"日本語"}]}

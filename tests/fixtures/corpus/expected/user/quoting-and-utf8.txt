@@ -1,0 +1,3 @@
+version
+Game
+7:"0xH0010=1":"Title: \"quoted\" \\ slash \nline \ttab 世界":Descrição:::win_condition:Autor:5:::::00007

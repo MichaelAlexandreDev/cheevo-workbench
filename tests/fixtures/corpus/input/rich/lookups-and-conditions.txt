@@ -1,0 +1,11 @@
+Format:Score
+FormatType=VALUE
+
+Lookup:Stage
+0=Title
+1=Stage 1
+*=Unknown
+
+Display:
+?0xH0010=1?Paused in @Stage(0xH0011)
+Playing @Stage(0xH0011), score @Score(0xX0020)

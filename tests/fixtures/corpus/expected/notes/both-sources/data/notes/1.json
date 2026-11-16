@@ -1,0 +1,19 @@
+{
+  "format": "cheevo-workbench-code-notes",
+  "game_id": 1,
+  "notes": [
+    {
+      "address": "0x000010",
+      "note": "Edited by the corpus:\nsecond line"
+    },
+    {
+      "address": "0x000020",
+      "note": "changed locally"
+    },
+    {
+      "address": "0x00ABCD",
+      "note": "lowercase address in the file"
+    }
+  ],
+  "version": 1
+}
