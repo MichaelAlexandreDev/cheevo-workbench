@@ -12,6 +12,15 @@ compatible with the official Windows toolkit (RALibretro + RAIntegration).
 **Status:** early development, no release yet. The tools below work and are covered by unit
 tests; some of them are still waiting for manual validation. Expect rough edges.
 
+![Memory viewer next to the running game; bytes that changed since the last frame are highlighted](docs/images/memory-viewer.png)
+
+<details>
+<summary>Achievement editor</summary>
+
+![Achievement editor with a condition on a memory address](docs/images/achievement-editor.png)
+
+</details>
+
 ## Why
 
 Playing with achievements already works on Linux (RetroArch, DuckStation, PCSX2…), but the
