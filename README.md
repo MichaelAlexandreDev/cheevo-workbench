@@ -1,5 +1,7 @@
 # cheevo-workbench
 
+[![CI](https://github.com/MichaelAlexandreDev/cheevo-workbench/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelAlexandreDev/cheevo-workbench/actions/workflows/ci.yml)
+
 A native Linux workbench for developing [RetroAchievements](https://retroachievements.org)
 achievement sets: a small libretro front-end with built-in developer tools whose files are
 compatible with the official Windows toolkit (RALibretro + RAIntegration).
