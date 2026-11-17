@@ -123,4 +123,4 @@ split into 7a (read-only: login, hash → game ID, fetch assets/notes) and 7b (w
 - Split `src/frontend/main.cpp` into one file per window and responsibility, with characterization
   tests in `tests/test_main_windows.cpp` (implemented on 2026-11-03).
 
-- Packaging: AUR `-git` package, AppImage, CI (after milestone 2); license choice before release.
+- Packaging: AUR `-git` package, AppImage, CI (after milestone 2); license: MIT (chosen 2026-11-17).
