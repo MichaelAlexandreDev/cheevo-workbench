@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Format, build and test (Arch Linux)
+    runs-on: ubuntu-latest
+    # Arch ships SDL3 as a package; Ubuntu LTS does not yet. LeakSanitizer needs ptrace.
+    container:
+      image: archlinux:base-devel
+      options: --cap-add=SYS_PTRACE
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed git cmake ninja sdl3 mesa clang
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The checkout belongs to another user than the container's root; check-all.sh calls git.
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Run every check (tools/check-all.sh)
+        run: tools/check-all.sh
